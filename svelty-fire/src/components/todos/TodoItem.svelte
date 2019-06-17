@@ -1,6 +1,6 @@
 <script>
     import { fade, fly } from 'svelte/transition';
-
+export let router
     import { createEventDispatcher } from 'svelte';
 
     const dispatch = createEventDispatcher();

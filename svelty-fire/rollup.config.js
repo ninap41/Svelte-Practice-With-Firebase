@@ -2,25 +2,31 @@ import svelte from 'rollup-plugin-svelte';
 import resolve from 'rollup-plugin-node-resolve';
 import commonjs from 'rollup-plugin-commonjs';
 import { terser } from 'rollup-plugin-terser';
+
 import { app } from 'firebase';
 
 const production = !process.env.ROLLUP_WATCH;
+// let routes = {
+// 	about: { r: 'src/components/todos/about.js', name: 'about', url: '/about'},
+// 	app: { r: 'src/main.js', name: 'app', url: '/'}
+// };
 
-// let route;
-// let t;
+// let defaultr = routes.app;
+
 export default {
-	input: 'src/main.js',
-	
+	input: './src/main.js',
 	output: {
 		sourcemap: true,
 		format: 'iife',
 		name: 'app',
 		file: 'public/bundle.js'
 	},
+
 	plugins: [
 		svelte({
 			// enable run-time checks when not in production
 			dev: !production,
+
 			// we'll extract any component CSS out into
 			// a separate file — better for performance
 			css: css => {
@@ -38,10 +44,11 @@ export default {
 
 		// If we're building for production (npm run build
 		// instead of npm run dev), minify
-		production && terser()
+		production && terser(),
+		function changeShit(str) {
+			defaultr = defaultr[str]
+			return;
+		}
 	],
-	// context: {
-	// 	route : !route ? route = 'home' : console.log('asd'),
-	// 	t : !t ? t = 'home' : console.log('asd'),
-	// }
+	
 };

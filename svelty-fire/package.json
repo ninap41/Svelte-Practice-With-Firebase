@@ -21,6 +21,7 @@
   "dependencies": {
     "firebase": "^5.10.0",
     "rxfire": "^3.4.0",
-    "rxjs": "^6.5.1"
+    "rxjs": "^6.5.1",
+    "svelte-easyroute-rollup": "^0.3.0"
   }
 }

@@ -40,6 +40,22 @@ var app = (function () {
             ? () => unsub.unsubscribe()
             : unsub);
     }
+    function create_slot(definition, ctx, fn) {
+        if (definition) {
+            const slot_ctx = get_slot_context(definition, ctx, fn);
+            return definition[0](slot_ctx);
+        }
+    }
+    function get_slot_context(definition, ctx, fn) {
+        return definition[1]
+            ? assign({}, assign(ctx.$$scope.ctx, definition[1](fn ? fn(ctx) : {})))
+            : ctx.$$scope.ctx;
+    }
+    function get_slot_changes(definition, ctx, changed, fn) {
+        return definition[1]
+            ? assign({}, assign(ctx.$$scope.changed || {}, definition[1](fn ? fn(changed) : {})))
+            : ctx.$$scope.changed || {};
+    }
     const is_client = typeof window !== 'undefined';
     let now = is_client
         ? () => window.performance.now()
@@ -98,6 +114,9 @@ var app = (function () {
     }
     function space() {
         return text(' ');
+    }
+    function empty() {
+        return text('');
     }
     function listen(node, event, handler, options) {
         node.addEventListener(event, handler, options);
@@ -176,6 +195,14 @@ var app = (function () {
     let current_component;
     function set_current_component(component) {
         current_component = component;
+    }
+    function get_current_component() {
+        if (!current_component)
+            throw new Error(`Function called outside component initialization`);
+        return current_component;
+    }
+    function onMount(fn) {
+        get_current_component().$$.on_mount.push(fn);
     }
     function createEventDispatcher() {
         const component = current_component;
@@ -389,6 +416,111 @@ var app = (function () {
                         delete_rule(node, animation_name);
                     running = false;
                 }
+            }
+        };
+    }
+    function create_bidirectional_transition(node, fn, params, intro) {
+        let config = fn(node, params);
+        let t = intro ? 0 : 1;
+        let running_program = null;
+        let pending_program = null;
+        let animation_name = null;
+        function clear_animation() {
+            if (animation_name)
+                delete_rule(node, animation_name);
+        }
+        function init(program, duration) {
+            const d = program.b - t;
+            duration *= Math.abs(d);
+            return {
+                a: t,
+                b: program.b,
+                d,
+                duration,
+                start: program.start,
+                end: program.start + duration,
+                group: program.group
+            };
+        }
+        function go(b) {
+            const { delay = 0, duration = 300, easing = identity, tick: tick$$1 = noop, css } = config;
+            const program = {
+                start: now() + delay,
+                b
+            };
+            if (!b) {
+                // @ts-ignore todo: improve typings
+                program.group = outros;
+                outros.remaining += 1;
+            }
+            if (running_program) {
+                pending_program = program;
+            }
+            else {
+                // if this is an intro, and there's a delay, we need to do
+                // an initial tick and/or apply CSS animation immediately
+                if (css) {
+                    clear_animation();
+                    animation_name = create_rule(node, t, b, duration, delay, easing, css);
+                }
+                if (b)
+                    tick$$1(0, 1);
+                running_program = init(program, duration);
+                add_render_callback(() => dispatch(node, b, 'start'));
+                loop(now$$1 => {
+                    if (pending_program && now$$1 > pending_program.start) {
+                        running_program = init(pending_program, duration);
+                        pending_program = null;
+                        dispatch(node, running_program.b, 'start');
+                        if (css) {
+                            clear_animation();
+                            animation_name = create_rule(node, t, running_program.b, running_program.duration, 0, easing, config.css);
+                        }
+                    }
+                    if (running_program) {
+                        if (now$$1 >= running_program.end) {
+                            tick$$1(t = running_program.b, 1 - t);
+                            dispatch(node, running_program.b, 'end');
+                            if (!pending_program) {
+                                // we're done
+                                if (running_program.b) {
+                                    // intro — we can tidy up immediately
+                                    clear_animation();
+                                }
+                                else {
+                                    // outro — needs to be coordinated
+                                    if (!--running_program.group.remaining)
+                                        run_all(running_program.group.callbacks);
+                                }
+                            }
+                            running_program = null;
+                        }
+                        else if (now$$1 >= running_program.start) {
+                            const p = now$$1 - running_program.start;
+                            t = running_program.a + running_program.d * easing(p / running_program.duration);
+                            tick$$1(t, 1 - t);
+                        }
+                    }
+                    return !!(running_program || pending_program);
+                });
+            }
+        }
+        return {
+            run(b) {
+                if (is_function(config)) {
+                    wait().then(() => {
+                        // @ts-ignore
+                        config = config();
+                        go(b);
+                    });
+                }
+                else {
+                    go(b);
+                }
+            },
+            end() {
+                clear_animation();
+                running_program = pending_program = null;
             }
         };
     }
@@ -727,9 +859,9 @@ var app = (function () {
     			button = element("button");
     			button.textContent = "❌";
     			span.className = "svelte-1vh0yy4";
-    			add_location(span, file$1, 52, 4, 910);
+    			add_location(span, file$1, 52, 4, 927);
     			button.className = "is-button";
-    			add_location(button, file$1, 55, 1, 947);
+    			add_location(button, file$1, 55, 1, 964);
     			dispose = listen(button, "click", ctx.toggleStatus);
     		},
 
@@ -770,9 +902,9 @@ var app = (function () {
     			button = element("button");
     			button.textContent = "✔️";
     			span.className = "is-complete svelte-1vh0yy4";
-    			add_location(span, file$1, 45, 4, 774);
+    			add_location(span, file$1, 45, 4, 791);
     			button.className = "is-button";
-    			add_location(button, file$1, 48, 1, 831);
+    			add_location(button, file$1, 48, 1, 848);
     			dispose = listen(button, "click", ctx.toggleStatus);
     		},
 
@@ -820,9 +952,9 @@ var app = (function () {
     			button = element("button");
     			button.textContent = "🗑️";
     			button.className = "is-button";
-    			add_location(button, file$1, 60, 0, 1020);
+    			add_location(button, file$1, 60, 0, 1037);
     			li.className = "svelte-1vh0yy4";
-    			add_location(li, file$1, 42, 0, 703);
+    			add_location(li, file$1, 42, 0, 720);
     			dispose = listen(button, "click", ctx.remove);
     		},
 
@@ -887,7 +1019,7 @@ var app = (function () {
     }
 
     function instance$1($$self, $$props, $$invalidate) {
-    	
+    	let { router } = $$props;
 
         const dispatch = createEventDispatcher();
         
@@ -905,27 +1037,38 @@ var app = (function () {
         
         let { id, text, complete } = $$props;
 
-    	const writable_props = ['id', 'text', 'complete'];
+    	const writable_props = ['router', 'id', 'text', 'complete'];
     	Object.keys($$props).forEach(key => {
     		if (!writable_props.includes(key) && !key.startsWith('$$')) console.warn(`<TodoItem> was created with unknown prop '${key}'`);
     	});
 
     	$$self.$set = $$props => {
+    		if ('router' in $$props) $$invalidate('router', router = $$props.router);
     		if ('id' in $$props) $$invalidate('id', id = $$props.id);
     		if ('text' in $$props) $$invalidate('text', text = $$props.text);
     		if ('complete' in $$props) $$invalidate('complete', complete = $$props.complete);
     	};
 
-    	return { remove, toggleStatus, id, text, complete };
+    	return {
+    		router,
+    		remove,
+    		toggleStatus,
+    		id,
+    		text,
+    		complete
+    	};
     }
 
     class TodoItem extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance$1, create_fragment$1, safe_not_equal, ["id", "text", "complete"]);
+    		init(this, options, instance$1, create_fragment$1, safe_not_equal, ["router", "id", "text", "complete"]);
 
     		const { ctx } = this.$$;
     		const props = options.props || {};
+    		if (ctx.router === undefined && !('router' in props)) {
+    			console.warn("<TodoItem> was created without expected prop 'router'");
+    		}
     		if (ctx.id === undefined && !('id' in props)) {
     			console.warn("<TodoItem> was created without expected prop 'id'");
     		}
@@ -935,6 +1078,14 @@ var app = (function () {
     		if (ctx.complete === undefined && !('complete' in props)) {
     			console.warn("<TodoItem> was created without expected prop 'complete'");
     		}
+    	}
+
+    	get router() {
+    		throw new Error("<TodoItem>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set router(value) {
+    		throw new Error("<TodoItem>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
 
     	get id() {
@@ -3853,7 +4004,6 @@ var app = (function () {
     function noop$2() {
         // do nothing
     }
-    //# sourceMappingURL=index.esm.js.map
 
     /**
      * @license
@@ -4337,9 +4487,6 @@ var app = (function () {
         }
     }
     var firebase = createFirebaseNamespace();
-    //# sourceMappingURL=index.esm.js.map
-
-    //# sourceMappingURL=index.esm.js.map
 
     (function() {var h,aa=aa||{},l=this;function m(a){return "string"==typeof a}function ba(a){return "boolean"==typeof a}var ca=/^[\w+/_-]+[=]{0,2}$/,ea=null;function fa(){}
     function ha(a){var b=typeof a;if("object"==b)if(a){if(a instanceof Array)return "array";if(a instanceof Object)return b;var c=Object.prototype.toString.call(a);if("[object Window]"==c)return "object";if("[object Array]"==c||"number"==typeof a.length&&"undefined"!=typeof a.splice&&"undefined"!=typeof a.propertyIsEnumerable&&!a.propertyIsEnumerable("splice"))return "array";if("[object Function]"==c||"undefined"!=typeof a.call&&"undefined"!=typeof a.propertyIsEnumerable&&!a.propertyIsEnumerable("call"))return "function"}else return "null";
@@ -4661,8 +4808,6 @@ var app = (function () {
     (function(){if("undefined"!==typeof firebase&&firebase.INTERNAL&&firebase.INTERNAL.registerService){var a={Auth:mm,AuthCredential:Sf,Error:N};Z(a,"EmailAuthProvider",og,[]);Z(a,"FacebookAuthProvider",fg,[]);Z(a,"GithubAuthProvider",hg,[]);Z(a,"GoogleAuthProvider",jg,[]);Z(a,"TwitterAuthProvider",lg,[]);Z(a,"OAuthProvider",O,[V("providerId")]);Z(a,"SAMLAuthProvider",eg,[V("providerId")]);Z(a,"PhoneAuthProvider",Bg,[dn()]);Z(a,"RecaptchaVerifier",Xm,[X(V(),cn(),"recaptchaContainer"),W("recaptchaParameters",
     !0),en()]);firebase.INTERNAL.registerService("auth",function(b,c){b=new mm(b);c({INTERNAL:{getUid:t(b.getUid,b),getToken:t(b.cc,b),addAuthTokenListener:t(b.Vb,b),removeAuthTokenListener:t(b.Ec,b)}});return b},a,function(b,c){if("create"===b)try{c.auth();}catch(d){}});firebase.INTERNAL.extendNamespace({User:Q});}else throw Error("Cannot find the firebase namespace; be sure to include firebase-app.js before this library.");})();}).apply(typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : typeof window !== 'undefined' ? window : {});
 
-    //# sourceMappingURL=auth.esm.js.map
-
     /**
      * @license
      * Copyright 2017 Google Inc.
@@ -4826,7 +4971,6 @@ var app = (function () {
         };
         return Logger;
     }());
-    //# sourceMappingURL=index.esm.js.map
 
     var commonjsGlobal$1 = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
@@ -4922,7 +5066,6 @@ var app = (function () {
     var tmp_3 = tmp.EventType;
     var tmp_4 = tmp.WebChannel;
     var tmp_5 = tmp.XhrIo;
-    //# sourceMappingURL=index.esm.js.map
 
     /**
      * @license
@@ -26636,7 +26779,6 @@ var app = (function () {
         configureForFirebase(instance);
     }
     registerFirestore(firebase);
-    //# sourceMappingURL=index.esm.js.map
 
     var firebaseConfig = {
       apiKey: "AIzaSyA2zumgOX2ohFHpS5RHNRegZgNl8TBKfJI", //check
@@ -26656,7 +26798,6 @@ var app = (function () {
     function isFunction(x) {
         return typeof x === 'function';
     }
-    //# sourceMappingURL=isFunction.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     var _enable_super_gross_mode_that_will_cause_bad_things = false;
@@ -26673,16 +26814,14 @@ var app = (function () {
             return _enable_super_gross_mode_that_will_cause_bad_things;
         },
     };
-    //# sourceMappingURL=config.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     function hostReportError(err) {
         setTimeout(function () { throw err; }, 0);
     }
-    //# sourceMappingURL=hostReportError.js.map
 
     /** PURE_IMPORTS_START _config,_util_hostReportError PURE_IMPORTS_END */
-    var empty = {
+    var empty$1 = {
         closed: true,
         next: function (value) { },
         error: function (err) {
@@ -26695,17 +26834,14 @@ var app = (function () {
         },
         complete: function () { }
     };
-    //# sourceMappingURL=Observer.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     var isArray$1 = Array.isArray || (function (x) { return x && typeof x.length === 'number'; });
-    //# sourceMappingURL=isArray.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     function isObject$1(x) {
         return x !== null && typeof x === 'object';
     }
-    //# sourceMappingURL=isObject.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     function UnsubscriptionErrorImpl(errors) {
@@ -26718,7 +26854,6 @@ var app = (function () {
     }
     UnsubscriptionErrorImpl.prototype = /*@__PURE__*/ Object.create(Error.prototype);
     var UnsubscriptionError = UnsubscriptionErrorImpl;
-    //# sourceMappingURL=UnsubscriptionError.js.map
 
     /** PURE_IMPORTS_START _util_isArray,_util_isObject,_util_isFunction,_util_UnsubscriptionError PURE_IMPORTS_END */
     var Subscription = /*@__PURE__*/ (function () {
@@ -26850,13 +26985,11 @@ var app = (function () {
     function flattenUnsubscriptionErrors(errors) {
         return errors.reduce(function (errs, err) { return errs.concat((err instanceof UnsubscriptionError) ? err.errors : err); }, []);
     }
-    //# sourceMappingURL=Subscription.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     var rxSubscriber = typeof Symbol === 'function'
         ? /*@__PURE__*/ Symbol('rxSubscriber')
         : '@@rxSubscriber_' + /*@__PURE__*/ Math.random();
-    //# sourceMappingURL=rxSubscriber.js.map
 
     /** PURE_IMPORTS_START tslib,_util_isFunction,_Observer,_Subscription,_internal_symbol_rxSubscriber,_config,_util_hostReportError PURE_IMPORTS_END */
     var Subscriber = /*@__PURE__*/ (function (_super) {
@@ -26869,11 +27002,11 @@ var app = (function () {
             _this.isStopped = false;
             switch (arguments.length) {
                 case 0:
-                    _this.destination = empty;
+                    _this.destination = empty$1;
                     break;
                 case 1:
                     if (!destinationOrNext) {
-                        _this.destination = empty;
+                        _this.destination = empty$1;
                         break;
                     }
                     if (typeof destinationOrNext === 'object') {
@@ -26961,7 +27094,7 @@ var app = (function () {
                 next = observerOrNext.next;
                 error = observerOrNext.error;
                 complete = observerOrNext.complete;
-                if (observerOrNext !== empty) {
+                if (observerOrNext !== empty$1) {
                     context = Object.create(observerOrNext);
                     if (isFunction(context.unsubscribe)) {
                         _this.add(context.unsubscribe.bind(context));
@@ -27081,7 +27214,6 @@ var app = (function () {
         };
         return SafeSubscriber;
     }(Subscriber));
-    //# sourceMappingURL=Subscriber.js.map
 
     /** PURE_IMPORTS_START _Subscriber PURE_IMPORTS_END */
     function canReportError(observer) {
@@ -27099,7 +27231,6 @@ var app = (function () {
         }
         return true;
     }
-    //# sourceMappingURL=canReportError.js.map
 
     /** PURE_IMPORTS_START _Subscriber,_symbol_rxSubscriber,_Observer PURE_IMPORTS_END */
     function toSubscriber(nextOrObserver, error, complete) {
@@ -27112,19 +27243,16 @@ var app = (function () {
             }
         }
         if (!nextOrObserver && !error && !complete) {
-            return new Subscriber(empty);
+            return new Subscriber(empty$1);
         }
         return new Subscriber(nextOrObserver, error, complete);
     }
-    //# sourceMappingURL=toSubscriber.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     var observable = typeof Symbol === 'function' && Symbol.observable || '@@observable';
-    //# sourceMappingURL=observable.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     function noop$3() { }
-    //# sourceMappingURL=noop.js.map
 
     /** PURE_IMPORTS_START _noop PURE_IMPORTS_END */
     function pipeFromArray(fns) {
@@ -27138,7 +27266,6 @@ var app = (function () {
             return fns.reduce(function (prev, fn) { return fn(prev); }, input);
         };
     }
-    //# sourceMappingURL=pipe.js.map
 
     /** PURE_IMPORTS_START _util_canReportError,_util_toSubscriber,_symbol_observable,_util_pipe,_config PURE_IMPORTS_END */
     var Observable = /*@__PURE__*/ (function () {
@@ -27249,7 +27376,6 @@ var app = (function () {
         }
         return promiseCtor;
     }
-    //# sourceMappingURL=Observable.js.map
 
     /** PURE_IMPORTS_START tslib,_Observable,_Subscriber,_Subscription,_util_ObjectUnsubscribedError,_SubjectSubscription,_internal_symbol_rxSubscriber PURE_IMPORTS_END */
     var SubjectSubscriber = /*@__PURE__*/ (function (_super) {
@@ -27261,7 +27387,6 @@ var app = (function () {
         }
         return SubjectSubscriber;
     }(Subscriber));
-    //# sourceMappingURL=Subject.js.map
 
     /** PURE_IMPORTS_START tslib,_Subscriber PURE_IMPORTS_END */
     function refCount() {
@@ -27318,7 +27443,6 @@ var app = (function () {
         };
         return RefCountSubscriber;
     }(Subscriber));
-    //# sourceMappingURL=refCount.js.map
 
     /** PURE_IMPORTS_START tslib,_Subject,_Observable,_Subscriber,_Subscription,_operators_refCount PURE_IMPORTS_END */
     var ConnectableObservable = /*@__PURE__*/ (function (_super) {
@@ -27403,13 +27527,11 @@ var app = (function () {
         };
         return ConnectableSubscriber;
     }(SubjectSubscriber));
-    //# sourceMappingURL=ConnectableObservable.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     function isScheduler(value) {
         return value && typeof value.schedule === 'function';
     }
-    //# sourceMappingURL=isScheduler.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     var subscribeToArray = function (array) {
@@ -27420,7 +27542,6 @@ var app = (function () {
             subscriber.complete();
         };
     };
-    //# sourceMappingURL=subscribeToArray.js.map
 
     /** PURE_IMPORTS_START _Observable,_Subscription PURE_IMPORTS_END */
     function scheduleArray(input, scheduler) {
@@ -27440,7 +27561,6 @@ var app = (function () {
             return sub;
         });
     }
-    //# sourceMappingURL=scheduleArray.js.map
 
     /** PURE_IMPORTS_START _Observable,_util_subscribeToArray,_scheduled_scheduleArray PURE_IMPORTS_END */
     function fromArray(input, scheduler) {
@@ -27451,7 +27571,6 @@ var app = (function () {
             return scheduleArray(input, scheduler);
         }
     }
-    //# sourceMappingURL=fromArray.js.map
 
     /** PURE_IMPORTS_START _util_isScheduler,_fromArray,_scheduled_scheduleArray PURE_IMPORTS_END */
     function of() {
@@ -27468,13 +27587,11 @@ var app = (function () {
             return fromArray(args);
         }
     }
-    //# sourceMappingURL=of.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     function identity$1(x) {
         return x;
     }
-    //# sourceMappingURL=identity.js.map
 
     /** PURE_IMPORTS_START tslib,_Subscriber PURE_IMPORTS_END */
     function map(project, thisArg) {
@@ -27517,7 +27634,6 @@ var app = (function () {
         };
         return MapSubscriber;
     }(Subscriber));
-    //# sourceMappingURL=map.js.map
 
     /** PURE_IMPORTS_START tslib,_Subscriber PURE_IMPORTS_END */
     var OuterSubscriber = /*@__PURE__*/ (function (_super) {
@@ -27536,7 +27652,6 @@ var app = (function () {
         };
         return OuterSubscriber;
     }(Subscriber));
-    //# sourceMappingURL=OuterSubscriber.js.map
 
     /** PURE_IMPORTS_START tslib,_Subscriber PURE_IMPORTS_END */
     var InnerSubscriber = /*@__PURE__*/ (function (_super) {
@@ -27562,7 +27677,6 @@ var app = (function () {
         };
         return InnerSubscriber;
     }(Subscriber));
-    //# sourceMappingURL=InnerSubscriber.js.map
 
     /** PURE_IMPORTS_START _hostReportError PURE_IMPORTS_END */
     var subscribeToPromise = function (promise) {
@@ -27577,7 +27691,6 @@ var app = (function () {
             return subscriber;
         };
     };
-    //# sourceMappingURL=subscribeToPromise.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     function getSymbolIterator() {
@@ -27587,7 +27700,6 @@ var app = (function () {
         return Symbol.iterator;
     }
     var iterator$1 = /*@__PURE__*/ getSymbolIterator();
-    //# sourceMappingURL=iterator.js.map
 
     /** PURE_IMPORTS_START _symbol_iterator PURE_IMPORTS_END */
     var subscribeToIterable = function (iterable) {
@@ -27614,7 +27726,6 @@ var app = (function () {
             return subscriber;
         };
     };
-    //# sourceMappingURL=subscribeToIterable.js.map
 
     /** PURE_IMPORTS_START _symbol_observable PURE_IMPORTS_END */
     var subscribeToObservable = function (obj) {
@@ -27628,17 +27739,14 @@ var app = (function () {
             }
         };
     };
-    //# sourceMappingURL=subscribeToObservable.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     var isArrayLike = (function (x) { return x && typeof x.length === 'number' && typeof x !== 'function'; });
-    //# sourceMappingURL=isArrayLike.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     function isPromise(value) {
         return !!value && typeof value.subscribe !== 'function' && typeof value.then === 'function';
     }
-    //# sourceMappingURL=isPromise.js.map
 
     /** PURE_IMPORTS_START _subscribeToArray,_subscribeToPromise,_subscribeToIterable,_subscribeToObservable,_isArrayLike,_isPromise,_isObject,_symbol_iterator,_symbol_observable PURE_IMPORTS_END */
     var subscribeTo = function (result) {
@@ -27661,7 +27769,6 @@ var app = (function () {
             throw new TypeError(msg);
         }
     };
-    //# sourceMappingURL=subscribeTo.js.map
 
     /** PURE_IMPORTS_START _InnerSubscriber,_subscribeTo,_Observable PURE_IMPORTS_END */
     function subscribeToResult(outerSubscriber, result, outerValue, outerIndex, destination) {
@@ -27676,7 +27783,6 @@ var app = (function () {
         }
         return subscribeTo(result)(destination);
     }
-    //# sourceMappingURL=subscribeToResult.js.map
 
     /** PURE_IMPORTS_START _Observable,_Subscription,_symbol_observable PURE_IMPORTS_END */
     function scheduleObservable(input, scheduler) {
@@ -27693,7 +27799,6 @@ var app = (function () {
             return sub;
         });
     }
-    //# sourceMappingURL=scheduleObservable.js.map
 
     /** PURE_IMPORTS_START _Observable,_Subscription PURE_IMPORTS_END */
     function schedulePromise(input, scheduler) {
@@ -27712,7 +27817,6 @@ var app = (function () {
             return sub;
         });
     }
-    //# sourceMappingURL=schedulePromise.js.map
 
     /** PURE_IMPORTS_START _Observable,_Subscription,_symbol_iterator PURE_IMPORTS_END */
     function scheduleIterable(input, scheduler) {
@@ -27756,19 +27860,16 @@ var app = (function () {
             return sub;
         });
     }
-    //# sourceMappingURL=scheduleIterable.js.map
 
     /** PURE_IMPORTS_START _symbol_observable PURE_IMPORTS_END */
     function isInteropObservable(input) {
         return input && typeof input[observable] === 'function';
     }
-    //# sourceMappingURL=isInteropObservable.js.map
 
     /** PURE_IMPORTS_START _symbol_iterator PURE_IMPORTS_END */
     function isIterable(input) {
         return input && typeof input[iterator$1] === 'function';
     }
-    //# sourceMappingURL=isIterable.js.map
 
     /** PURE_IMPORTS_START _scheduleObservable,_schedulePromise,_scheduleArray,_scheduleIterable,_util_isInteropObservable,_util_isPromise,_util_isArrayLike,_util_isIterable PURE_IMPORTS_END */
     function scheduled(input, scheduler) {
@@ -27788,7 +27889,6 @@ var app = (function () {
         }
         throw new TypeError((input !== null && typeof input || input) + ' is not observable');
     }
-    //# sourceMappingURL=scheduled.js.map
 
     /** PURE_IMPORTS_START _Observable,_util_subscribeTo,_scheduled_scheduled PURE_IMPORTS_END */
     function from(input, scheduler) {
@@ -27802,7 +27902,6 @@ var app = (function () {
             return scheduled(input, scheduler);
         }
     }
-    //# sourceMappingURL=from.js.map
 
     /** PURE_IMPORTS_START tslib,_util_subscribeToResult,_OuterSubscriber,_InnerSubscriber,_map,_observable_from PURE_IMPORTS_END */
     function mergeMap(project, resultSelector, concurrent) {
@@ -27895,7 +27994,6 @@ var app = (function () {
         };
         return MergeMapSubscriber;
     }(OuterSubscriber));
-    //# sourceMappingURL=mergeMap.js.map
 
     /** PURE_IMPORTS_START _mergeMap,_util_identity PURE_IMPORTS_END */
     function mergeAll(concurrent) {
@@ -27904,13 +28002,11 @@ var app = (function () {
         }
         return mergeMap(identity$1, concurrent);
     }
-    //# sourceMappingURL=mergeAll.js.map
 
     /** PURE_IMPORTS_START _mergeAll PURE_IMPORTS_END */
     function concatAll() {
         return mergeAll(1);
     }
-    //# sourceMappingURL=concatAll.js.map
 
     /** PURE_IMPORTS_START _of,_operators_concatAll PURE_IMPORTS_END */
     function concat() {
@@ -27920,7 +28016,6 @@ var app = (function () {
         }
         return concatAll()(of.apply(void 0, observables));
     }
-    //# sourceMappingURL=concat.js.map
 
     /** PURE_IMPORTS_START _observable_concat,_util_isScheduler PURE_IMPORTS_END */
     function startWith() {
@@ -27937,7 +28032,6 @@ var app = (function () {
             return function (source) { return concat(array, source); };
         }
     }
-    //# sourceMappingURL=startWith.js.map
 
     /**
      * @license
@@ -27998,7 +28092,6 @@ var app = (function () {
             return arr.map(function (snap) { return snapToData(snap, idField); });
         }));
     }
-    //# sourceMappingURL=index.esm.js.map
 
     /* src/components/todos/Todos.svelte generated by Svelte v3.5.1 */
 
@@ -28313,7 +28406,6 @@ var app = (function () {
             return { unsubscribe: unsubscribe };
         });
     }
-    //# sourceMappingURL=index.esm.js.map
 
     /* src/Login.svelte generated by Svelte v3.5.1 */
 
@@ -28623,21 +28715,27 @@ var app = (function () {
     	}
     }
 
-    /* src/App.svelte generated by Svelte v3.5.1 */
+    /* node_modules/svelte-easyroute-rollup/RouterLink.svelte generated by Svelte v3.5.1 */
 
-    const file$4 = "src/App.svelte";
+    const file$4 = "node_modules/svelte-easyroute-rollup/RouterLink.svelte";
 
-    // (23:1) {#if !user}
+    // (2:0) {#if text && text !== ""}
     function create_if_block$2(ctx) {
     	var t;
 
     	return {
     		c: function create() {
-    			t = text("no user");
+    			t = text(ctx.text);
     		},
 
     		m: function mount(target, anchor) {
     			insert(target, t, anchor);
+    		},
+
+    		p: function update(changed, ctx) {
+    			if (changed.text) {
+    				set_data(t, ctx.text);
+    			}
     		},
 
     		d: function destroy(detaching) {
@@ -28649,12 +28747,174 @@ var app = (function () {
     }
 
     function create_fragment$4(ctx) {
-    	var link, t0, main, t1, current;
+    	var div, t, current, dispose;
 
-    	var if_block = (!ctx.user) && create_if_block$2();
+    	var if_block = (ctx.text && ctx.text !== "") && create_if_block$2(ctx);
 
-    	var login = new Login({
-    		props: { name: ctx.name },
+    	const default_slot_1 = ctx.$$slots.default;
+    	const default_slot = create_slot(default_slot_1, ctx, null);
+
+    	return {
+    		c: function create() {
+    			div = element("div");
+    			if (if_block) if_block.c();
+    			t = space();
+
+    			if (default_slot) default_slot.c();
+
+    			div.className = "router-link svelte-13ihil9";
+    			add_location(div, file$4, 0, 0, 0);
+    			dispose = listen(div, "click", ctx.navigateRouter);
+    		},
+
+    		l: function claim(nodes) {
+    			if (default_slot) default_slot.l(div_nodes);
+    			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
+    		},
+
+    		m: function mount(target, anchor) {
+    			insert(target, div, anchor);
+    			if (if_block) if_block.m(div, null);
+    			append(div, t);
+
+    			if (default_slot) {
+    				default_slot.m(div, null);
+    			}
+
+    			current = true;
+    		},
+
+    		p: function update(changed, ctx) {
+    			if (ctx.text && ctx.text !== "") {
+    				if (if_block) {
+    					if_block.p(changed, ctx);
+    				} else {
+    					if_block = create_if_block$2(ctx);
+    					if_block.c();
+    					if_block.m(div, t);
+    				}
+    			} else if (if_block) {
+    				if_block.d(1);
+    				if_block = null;
+    			}
+
+    			if (default_slot && default_slot.p && changed.$$scope) {
+    				default_slot.p(get_slot_changes(default_slot_1, ctx, changed, null), get_slot_context(default_slot_1, ctx, null));
+    			}
+    		},
+
+    		i: function intro(local) {
+    			if (current) return;
+    			if (default_slot && default_slot.i) default_slot.i(local);
+    			current = true;
+    		},
+
+    		o: function outro(local) {
+    			if (default_slot && default_slot.o) default_slot.o(local);
+    			current = false;
+    		},
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(div);
+    			}
+
+    			if (if_block) if_block.d();
+
+    			if (default_slot) default_slot.d(detaching);
+    			dispose();
+    		}
+    	};
+    }
+
+    function instance$4($$self, $$props, $$invalidate) {
+    	let { to, text } = $$props;
+
+        function navigateRouter() {
+            if (window.routermode == 'hash') window.location.hash = to;
+            if (window.routermode == 'history') {
+                let stateObj = { path: to, needAddBase: true };
+                var event = new CustomEvent('svelteEasyrouteLinkClicked', 
+                    { 
+                        'detail': stateObj
+                    });
+                window.dispatchEvent(event);
+            }
+        }
+
+    	const writable_props = ['to', 'text'];
+    	Object.keys($$props).forEach(key => {
+    		if (!writable_props.includes(key) && !key.startsWith('$$')) console.warn(`<RouterLink> was created with unknown prop '${key}'`);
+    	});
+
+    	let { $$slots = {}, $$scope } = $$props;
+
+    	$$self.$set = $$props => {
+    		if ('to' in $$props) $$invalidate('to', to = $$props.to);
+    		if ('text' in $$props) $$invalidate('text', text = $$props.text);
+    		if ('$$scope' in $$props) $$invalidate('$$scope', $$scope = $$props.$$scope);
+    	};
+
+    	return {
+    		to,
+    		text,
+    		navigateRouter,
+    		$$slots,
+    		$$scope
+    	};
+    }
+
+    class RouterLink extends SvelteComponentDev {
+    	constructor(options) {
+    		super(options);
+    		init(this, options, instance$4, create_fragment$4, safe_not_equal, ["to", "text"]);
+
+    		const { ctx } = this.$$;
+    		const props = options.props || {};
+    		if (ctx.to === undefined && !('to' in props)) {
+    			console.warn("<RouterLink> was created without expected prop 'to'");
+    		}
+    		if (ctx.text === undefined && !('text' in props)) {
+    			console.warn("<RouterLink> was created without expected prop 'text'");
+    		}
+    	}
+
+    	get to() {
+    		throw new Error("<RouterLink>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set to(value) {
+    		throw new Error("<RouterLink>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	get text() {
+    		throw new Error("<RouterLink>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set text(value) {
+    		throw new Error("<RouterLink>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+    }
+
+    /* src/App.svelte generated by Svelte v3.5.1 */
+
+    const file$5 = "src/App.svelte";
+
+    function create_fragment$5(ctx) {
+    	var link, t0, t1, t2, t3, div, div_transition, current;
+
+    	var routerlink0 = new RouterLink({
+    		props: { to: "/page2", text: "page2" },
+    		$$inline: true
+    	});
+
+    	var routerlink1 = new RouterLink({
+    		props: { to: "/about", text: "about" },
+    		$$inline: true
+    	});
+
+    	var routerlink2 = new RouterLink({
+    		props: { to: "/", text: "home" },
     		$$inline: true
     	});
 
@@ -28662,15 +28922,18 @@ var app = (function () {
     		c: function create() {
     			link = element("link");
     			t0 = space();
-    			main = element("main");
-    			if (if_block) if_block.c();
+    			routerlink0.$$.fragment.c();
     			t1 = space();
-    			login.$$.fragment.c();
+    			routerlink1.$$.fragment.c();
+    			t2 = space();
+    			routerlink2.$$.fragment.c();
+    			t3 = space();
+    			div = element("div");
     			link.rel = "stylesheet";
     			link.href = "https://cdnjs.cloudflare.com/ajax/libs/bulma/0.7.4/css/bulma.min.css";
-    			add_location(link, file$4, 8, 1, 104);
-    			main.className = "content svelte-1ci5s6m";
-    			add_location(main, file$4, 20, 0, 295);
+    			add_location(link, file$5, 16, 1, 329);
+    			div.id = "router-outlet";
+    			add_location(div, file$5, 31, 0, 641);
     		},
 
     		l: function claim(nodes) {
@@ -28680,25 +28943,788 @@ var app = (function () {
     		m: function mount(target, anchor) {
     			append(document.head, link);
     			insert(target, t0, anchor);
+    			mount_component(routerlink0, target, anchor);
+    			insert(target, t1, anchor);
+    			mount_component(routerlink1, target, anchor);
+    			insert(target, t2, anchor);
+    			mount_component(routerlink2, target, anchor);
+    			insert(target, t3, anchor);
+    			insert(target, div, anchor);
+    			current = true;
+    		},
+
+    		p: noop,
+
+    		i: function intro(local) {
+    			if (current) return;
+    			routerlink0.$$.fragment.i(local);
+
+    			routerlink1.$$.fragment.i(local);
+
+    			routerlink2.$$.fragment.i(local);
+
+    			add_render_callback(() => {
+    				if (!div_transition) div_transition = create_bidirectional_transition(div, fade, {}, true);
+    				div_transition.run(1);
+    			});
+
+    			current = true;
+    		},
+
+    		o: function outro(local) {
+    			routerlink0.$$.fragment.o(local);
+    			routerlink1.$$.fragment.o(local);
+    			routerlink2.$$.fragment.o(local);
+
+    			if (!div_transition) div_transition = create_bidirectional_transition(div, fade, {}, false);
+    			div_transition.run(0);
+
+    			current = false;
+    		},
+
+    		d: function destroy(detaching) {
+    			detach(link);
+
+    			if (detaching) {
+    				detach(t0);
+    			}
+
+    			routerlink0.$destroy(detaching);
+
+    			if (detaching) {
+    				detach(t1);
+    			}
+
+    			routerlink1.$destroy(detaching);
+
+    			if (detaching) {
+    				detach(t2);
+    			}
+
+    			routerlink2.$destroy(detaching);
+
+    			if (detaching) {
+    				detach(t3);
+    				detach(div);
+    				if (div_transition) div_transition.end();
+    			}
+    		}
+    	};
+    }
+
+    function instance$5($$self, $$props, $$invalidate) {
+    	
+    	let { router, name } = $$props;
+
+    onMount(()=> {
+    	router.createOutlet();
+    });
+
+    	const writable_props = ['router', 'name'];
+    	Object.keys($$props).forEach(key => {
+    		if (!writable_props.includes(key) && !key.startsWith('$$')) console.warn(`<App> was created with unknown prop '${key}'`);
+    	});
+
+    	$$self.$set = $$props => {
+    		if ('router' in $$props) $$invalidate('router', router = $$props.router);
+    		if ('name' in $$props) $$invalidate('name', name = $$props.name);
+    	};
+
+    	return { router, name };
+    }
+
+    class App extends SvelteComponentDev {
+    	constructor(options) {
+    		super(options);
+    		init(this, options, instance$5, create_fragment$5, safe_not_equal, ["router", "name"]);
+
+    		const { ctx } = this.$$;
+    		const props = options.props || {};
+    		if (ctx.router === undefined && !('router' in props)) {
+    			console.warn("<App> was created without expected prop 'router'");
+    		}
+    		if (ctx.name === undefined && !('name' in props)) {
+    			console.warn("<App> was created without expected prop 'name'");
+    		}
+    	}
+
+    	get router() {
+    		throw new Error("<App>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set router(value) {
+    		throw new Error("<App>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	get name() {
+    		throw new Error("<App>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set name(value) {
+    		throw new Error("<App>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+    }
+
+    /* node_modules/svelte-easyroute-rollup/RouterOutlet.svelte generated by Svelte v3.5.1 */
+
+    const file$6 = "node_modules/svelte-easyroute-rollup/RouterOutlet.svelte";
+
+    // (19:1) {#if drawOutlet}
+    function create_if_block$3(ctx) {
+    	var switch_instance_anchor, current;
+
+    	var switch_value = ctx.router.routes[ctx.currentRoute]["component"];
+
+    	function switch_props(ctx) {
+    		return {
+    			props: {
+    			router: ctx.router,
+    			currentRoute: ctx.route
+    		},
+    			$$inline: true
+    		};
+    	}
+
+    	if (switch_value) {
+    		var switch_instance = new switch_value(switch_props(ctx));
+    	}
+
+    	return {
+    		c: function create() {
+    			if (switch_instance) switch_instance.$$.fragment.c();
+    			switch_instance_anchor = empty();
+    		},
+
+    		m: function mount(target, anchor) {
+    			if (switch_instance) {
+    				mount_component(switch_instance, target, anchor);
+    			}
+
+    			insert(target, switch_instance_anchor, anchor);
+    			current = true;
+    		},
+
+    		p: function update(changed, ctx) {
+    			var switch_instance_changes = {};
+    			if (changed.router) switch_instance_changes.router = ctx.router;
+    			if (changed.route) switch_instance_changes.currentRoute = ctx.route;
+
+    			if (switch_value !== (switch_value = ctx.router.routes[ctx.currentRoute]["component"])) {
+    				if (switch_instance) {
+    					group_outros();
+    					const old_component = switch_instance;
+    					on_outro(() => {
+    						old_component.$destroy();
+    					});
+    					old_component.$$.fragment.o(1);
+    					check_outros();
+    				}
+
+    				if (switch_value) {
+    					switch_instance = new switch_value(switch_props(ctx));
+
+    					switch_instance.$$.fragment.c();
+    					switch_instance.$$.fragment.i(1);
+    					mount_component(switch_instance, switch_instance_anchor.parentNode, switch_instance_anchor);
+    				} else {
+    					switch_instance = null;
+    				}
+    			}
+
+    			else if (switch_value) {
+    				switch_instance.$set(switch_instance_changes);
+    			}
+    		},
+
+    		i: function intro(local) {
+    			if (current) return;
+    			if (switch_instance) switch_instance.$$.fragment.i(local);
+
+    			current = true;
+    		},
+
+    		o: function outro(local) {
+    			if (switch_instance) switch_instance.$$.fragment.o(local);
+    			current = false;
+    		},
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(switch_instance_anchor);
+    			}
+
+    			if (switch_instance) switch_instance.$destroy(detaching);
+    		}
+    	};
+    }
+
+    function create_fragment$6(ctx) {
+    	var div, current;
+
+    	var if_block = (ctx.drawOutlet) && create_if_block$3(ctx);
+
+    	return {
+    		c: function create() {
+    			div = element("div");
+    			if (if_block) if_block.c();
+    			add_location(div, file$6, 17, 0, 316);
+    		},
+
+    		l: function claim(nodes) {
+    			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
+    		},
+
+    		m: function mount(target, anchor) {
+    			insert(target, div, anchor);
+    			if (if_block) if_block.m(div, null);
+    			current = true;
+    		},
+
+    		p: function update(changed, ctx) {
+    			if (ctx.drawOutlet) {
+    				if (if_block) {
+    					if_block.p(changed, ctx);
+    					if_block.i(1);
+    				} else {
+    					if_block = create_if_block$3(ctx);
+    					if_block.c();
+    					if_block.i(1);
+    					if_block.m(div, null);
+    				}
+    			} else if (if_block) {
+    				group_outros();
+    				on_outro(() => {
+    					if_block.d(1);
+    					if_block = null;
+    				});
+
+    				if_block.o(1);
+    				check_outros();
+    			}
+    		},
+
+    		i: function intro(local) {
+    			if (current) return;
+    			if (if_block) if_block.i();
+    			current = true;
+    		},
+
+    		o: function outro(local) {
+    			if (if_block) if_block.o();
+    			current = false;
+    		},
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(div);
+    			}
+
+    			if (if_block) if_block.d();
+    		}
+    	};
+    }
+
+    function instance$6($$self, $$props, $$invalidate) {
+    	let { router } = $$props;
+    	let currentRoute = 0;
+    	let route = null;
+    	let drawOutlet = false;
+    	router.afterUpdate = function(r) {
+    		$$invalidate('currentRoute', currentRoute = r);
+    		try {
+    			let x = router.routes[currentRoute].component;
+    			$$invalidate('route', route = router.currentRoute);
+    			$$invalidate('drawOutlet', drawOutlet = true);
+    		} catch(error) {
+    			$$invalidate('drawOutlet', drawOutlet = false);
+    		}
+    	}; $$invalidate('router', router);
+
+    	const writable_props = ['router'];
+    	Object.keys($$props).forEach(key => {
+    		if (!writable_props.includes(key) && !key.startsWith('$$')) console.warn(`<RouterOutlet> was created with unknown prop '${key}'`);
+    	});
+
+    	$$self.$set = $$props => {
+    		if ('router' in $$props) $$invalidate('router', router = $$props.router);
+    	};
+
+    	return { router, currentRoute, route, drawOutlet };
+    }
+
+    class RouterOutlet extends SvelteComponentDev {
+    	constructor(options) {
+    		super(options);
+    		init(this, options, instance$6, create_fragment$6, safe_not_equal, ["router"]);
+
+    		const { ctx } = this.$$;
+    		const props = options.props || {};
+    		if (ctx.router === undefined && !('router' in props)) {
+    			console.warn("<RouterOutlet> was created without expected prop 'router'");
+    		}
+    	}
+
+    	get router() {
+    		throw new Error("<RouterOutlet>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set router(value) {
+    		throw new Error("<RouterOutlet>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+    }
+
+    var __awaiter$1 = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
+        return new (P || (P = Promise))(function (resolve, reject) {
+            function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+            function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+            function step(result) { result.done ? resolve(result.value) : new P(function (resolve) { resolve(result.value); }).then(fulfilled, rejected); }
+            step((generator = generator.apply(thisArg, _arguments || [])).next());
+        });
+    };
+    class Router {
+        /**
+         * Easyroute constructor
+         * @param params
+         */
+        constructor(params) {
+            this.mode = "hash";
+            this.baseUrl = "";
+            if (!params || typeof params != "object") {
+                throw Error('Wrong parameters given to Router constructor');
+            }
+            if (params.mode !== "history" && params.mode !== "hash") {
+                console.warn('SVELTE EASYROUTE: Router "mode" is not set: should be "hash" or "history".\nAuto-setting: "hash"');
+            }
+            else {
+                this.mode = params.mode;
+            }
+            window["routermode"] = this.mode;
+            if (params.base) {
+                var base = params.base;
+                if (base !== "") {
+                    if (base[0] !== "/")
+                        base = "/" + base;
+                    if (base[base.length - 1] !== "/")
+                        base = base + "/";
+                }
+                this.baseUrl = base;
+            }
+            this.routes = params.routes;
+            this.afterUpdate = params.callback;
+            if (!params.beforeEach) {
+                this.beforeEach = null;
+            }
+            else {
+                this.beforeEach = params.beforeEach;
+            }
+            if (this.mode === "hash") {
+                window.onhashchange = this.parseHash.bind(this);
+            }
+            if (this.mode === "history") {
+                window.addEventListener('svelteEasyrouteLinkClicked', function (event) {
+                    this.parseHistory(event);
+                }.bind(this));
+                window.addEventListener("popstate", function (event) {
+                    this.historyPopState(event);
+                }.bind(this));
+            }
+        }
+        /**
+         * historyPopState - what happens when we navigate
+         * in browser's history via browser's "back" and
+         * "forward" buttons
+         * @param event
+         */
+        historyPopState(event) {
+            let fakeEvent = {
+                detail: {
+                    path: event.state.path
+                }
+            };
+            this.parseHistory(fakeEvent, false);
+        }
+        /**
+         * parseHash - parsing location hash to navigate
+         * in "hash" mode.
+         */
+        parseHash() {
+            return __awaiter$1(this, void 0, void 0, function* () {
+                if (window.location.hash.indexOf('#') === -1) {
+                    this.push('/');
+                }
+                let hash = window.location.hash.replace('#', '');
+                var routeArray = hash.split('?');
+                var routeInfo;
+                var routeInfo = {
+                    fullPath: routeArray[0],
+                    route: routeArray[0].split('/'),
+                    query: {}
+                };
+                if (routeArray[1]) {
+                    var routeQuery = routeArray[1].split('&');
+                    routeQuery.forEach((param) => {
+                        let keyValue = param.split('=');
+                        routeInfo.query[keyValue[0]] = keyValue[1];
+                    });
+                }
+                var fromPath;
+                if (this.currentRoute)
+                    fromPath = this.currentRoute;
+                else
+                    fromPath = null;
+                yield this.beforeEachRoute(this.beforeEach, routeInfo, fromPath);
+                this.currentRoute = routeInfo;
+                this.compareRoutes();
+                if (this.afterEach)
+                    this.afterEach(routeInfo, fromPath);
+            });
+        }
+        /**
+         * parseHistory - parsing url to navigate
+         * in "history" mode.
+         * @param event - event object (from links and etc.)
+         * @param doPushState - boolean, tells us if we should fire pushState in history
+         */
+        parseHistory(event, doPushState = true) {
+            return __awaiter$1(this, void 0, void 0, function* () {
+                if (event.detail.needAddBase && this.baseUrl.length) {
+                    let evPath = event.detail.path;
+                    if (evPath[0] === "/")
+                        evPath = evPath.substring(1);
+                    evPath = this.baseUrl + evPath;
+                    event.detail.path = evPath;
+                }
+                if (event.detail.path.indexOf(this.baseUrl) == -1 && doPushState !== false)
+                    return false;
+                let path = event.detail.path.replace(this.baseUrl, "");
+                if (path[0] !== "/")
+                    path = "/" + path;
+                this.fullUrl = path;
+                let detailObj = { path: path };
+                if (doPushState)
+                    history.pushState(detailObj, '', event.detail.path);
+                var routeArray = path.split('?');
+                var routeInfo = {
+                    fullPath: routeArray[0],
+                    route: routeArray[0].split('/'),
+                    query: {}
+                };
+                if (routeArray[1]) {
+                    var routeQuery = routeArray[1].split('&');
+                    routeQuery.forEach((param) => {
+                        let keyValue = param.split('=');
+                        routeInfo.query[keyValue[0]] = keyValue[1];
+                    });
+                }
+                var fromPath;
+                if (this.currentRoute)
+                    fromPath = this.currentRoute;
+                else
+                    fromPath = null;
+                yield this.beforeEachRoute(this.beforeEach, routeInfo, fromPath);
+                this.currentRoute = routeInfo;
+                this.compareRoutes();
+                if (this.afterEach)
+                    this.afterEach(routeInfo, fromPath);
+            });
+        }
+        /**
+         * createOutlet - creating RouterOutlet
+         */
+        createOutlet() {
+            let outletDiv = document.getElementById('router-outlet');
+            if (!outletDiv)
+                throw Error('Could not find element with id "router-outlet". Router NOT created...');
+            let outlet = new RouterOutlet({
+                target: document.getElementById('router-outlet'),
+                props: {
+                    router: this
+                }
+            });
+            if (this.mode === 'hash')
+                this.parseHash();
+            if (this.mode === 'history')
+                this.initHistoryMode();
+            return outlet;
+        }
+        /**
+         * beforeEachRoute - wrapper function for user-specified
+         * "beforeEach" method
+         * @param userFunc
+         * @param to
+         * @param from
+         */
+        beforeEachRoute(userFunc, to, from) {
+            return new Promise((resolve, reject) => {
+                if (!userFunc)
+                    resolve();
+                userFunc(to, from, resolve);
+            });
+        }
+        /**
+         * parseParametedRoute - looking for ":" parts in path
+         * for dynamic routes matching
+         * @param url
+         */
+        parseParametedRoute(url) {
+            var nBread = url.split('/');
+            var matched = {};
+            for (var i = 0; i < this.routes.length; i++) {
+                var route = this.routes[i];
+                var routePath = route.path;
+                var rBread = routePath.split('/');
+                if (rBread.length !== nBread.length)
+                    continue;
+                var routeParams = {};
+                matched[`${route.path}`] = true;
+                for (var j = 0; j < rBread.length; j++) {
+                    var el = rBread[j];
+                    if (nBread[j] === '' && j !== 0) {
+                        matched[`${route.path}`] = false;
+                        continue;
+                    }
+                    if (el === nBread[j])
+                        continue;
+                    else {
+                        if (el[0] === ':') {
+                            routeParams[el.replace(':', '')] = nBread[j];
+                            continue;
+                        }
+                        else {
+                            matched[`${route.path}`] = false;
+                        }
+                    }
+                }
+            }
+            let keys = Object.keys(matched).filter((key) => matched[key] === true);
+            if (!keys.length)
+                throw Error("Couldn't find matching path");
+            else {
+                let idx = this.routes.findIndex((r) => r.path === keys[0]);
+                this.currentRoute['params'] = routeParams;
+                return idx;
+            }
+        }
+        /**
+         * compareRoutes = the method where we passing
+         * new route index to outlet.
+         */
+        compareRoutes() {
+            let routeStringUrl = this.currentRoute.route;
+            var routeString = routeStringUrl.join('/');
+            if (routeString[routeString.length - 1] === '/' && routeString !== '/')
+                routeString = routeString.slice(0, -1);
+            var routeIdx = this.routes.findIndex((r) => r.path === routeString);
+            if (routeIdx === -1) {
+                try {
+                    routeIdx = this.parseParametedRoute(routeString);
+                }
+                catch (error) {
+                    routeIdx = -1;
+                }
+            }
+            this.afterUpdate(routeIdx);
+        }
+        /**
+         * initHistoryMode - first called after router
+         * creating with mode "history"
+         */
+        initHistoryMode() {
+            let url = window.location.pathname + window.location.search;
+            let stateObj = { path: url, needAddBase: false };
+            var event = new CustomEvent('svelteEasyrouteLinkClicked', {
+                'detail': stateObj
+            });
+            window.dispatchEvent(event);
+        }
+        /**
+         * push - Navigation method
+         * @param url - string
+         */
+        push(url) {
+            if (this.mode === 'hash')
+                window.location.hash = url;
+            if (this.mode === 'history') {
+                let stateObj = { path: url };
+                var event = new CustomEvent('svelteEasyrouteLinkClicked', {
+                    'detail': stateObj
+                });
+                window.dispatchEvent(event);
+            }
+        }
+        /**
+         * pushByName - navigation between routes
+         * by route name.
+         * @param name
+         */
+        pushByName(name) {
+            let matched = this.routes.filter((route) => route.name === name);
+            if (!matched.length) {
+                throw Error('Route with name "' + name + '" not found');
+            }
+            let url = matched[0].path;
+            this.push(url);
+        }
+        get getCurrentRoute() {
+            return this.currentRoute;
+        }
+    }
+
+    /* src/components/todos/About.svelte generated by Svelte v3.5.1 */
+
+    const file$7 = "src/components/todos/About.svelte";
+
+    function create_fragment$7(ctx) {
+    	var h1, t0, t1;
+
+    	return {
+    		c: function create() {
+    			h1 = element("h1");
+    			t0 = text("You routed ");
+    			t1 = text(ctx.name);
+    			add_location(h1, file$7, 10, 0, 122);
+    		},
+
+    		l: function claim(nodes) {
+    			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
+    		},
+
+    		m: function mount(target, anchor) {
+    			insert(target, h1, anchor);
+    			append(h1, t0);
+    			append(h1, t1);
+    		},
+
+    		p: function update(changed, ctx) {
+    			if (changed.name) {
+    				set_data(t1, ctx.name);
+    			}
+    		},
+
+    		i: noop,
+    		o: noop,
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(h1);
+    			}
+    		}
+    	};
+    }
+
+    function instance$7($$self, $$props, $$invalidate) {
+    	let { name } = $$props;
+
+    onMount(()=> {
+        
+        $$invalidate('name', name ='Sveltey-Fire 🔥');
+    });
+
+    	const writable_props = ['name'];
+    	Object.keys($$props).forEach(key => {
+    		if (!writable_props.includes(key) && !key.startsWith('$$')) console.warn(`<About> was created with unknown prop '${key}'`);
+    	});
+
+    	$$self.$set = $$props => {
+    		if ('name' in $$props) $$invalidate('name', name = $$props.name);
+    	};
+
+    	return { name };
+    }
+
+    class About extends SvelteComponentDev {
+    	constructor(options) {
+    		super(options);
+    		init(this, options, instance$7, create_fragment$7, safe_not_equal, ["name"]);
+
+    		const { ctx } = this.$$;
+    		const props = options.props || {};
+    		if (ctx.name === undefined && !('name' in props)) {
+    			console.warn("<About> was created without expected prop 'name'");
+    		}
+    	}
+
+    	get name() {
+    		throw new Error("<About>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set name(value) {
+    		throw new Error("<About>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+    }
+
+    /* src/components/todos/Page2.svelte generated by Svelte v3.5.1 */
+
+    const file$8 = "src/components/todos/Page2.svelte";
+
+    function create_fragment$8(ctx) {
+    	var h1;
+
+    	return {
+    		c: function create() {
+    			h1 = element("h1");
+    			h1.textContent = "Page 2";
+    			add_location(h1, file$8, 2, 0, 19);
+    		},
+
+    		l: function claim(nodes) {
+    			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
+    		},
+
+    		m: function mount(target, anchor) {
+    			insert(target, h1, anchor);
+    		},
+
+    		p: noop,
+    		i: noop,
+    		o: noop,
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(h1);
+    			}
+    		}
+    	};
+    }
+
+    class Page2 extends SvelteComponentDev {
+    	constructor(options) {
+    		super(options);
+    		init(this, options, null, create_fragment$8, safe_not_equal, []);
+    	}
+    }
+
+    /* src/components/todos/Home.svelte generated by Svelte v3.5.1 */
+
+    const file$9 = "src/components/todos/Home.svelte";
+
+    function create_fragment$9(ctx) {
+    	var main, current;
+
+    	var login = new Login({
+    		props: { name: ctx.name },
+    		$$inline: true
+    	});
+
+    	return {
+    		c: function create() {
+    			main = element("main");
+    			login.$$.fragment.c();
+    			main.className = "content";
+    			add_location(main, file$9, 7, 0, 133);
+    		},
+
+    		l: function claim(nodes) {
+    			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
+    		},
+
+    		m: function mount(target, anchor) {
     			insert(target, main, anchor);
-    			if (if_block) if_block.m(main, null);
-    			append(main, t1);
     			mount_component(login, main, null);
     			current = true;
     		},
 
     		p: function update(changed, ctx) {
-    			if (!ctx.user) {
-    				if (!if_block) {
-    					if_block = create_if_block$2();
-    					if_block.c();
-    					if_block.m(main, t1);
-    				}
-    			} else if (if_block) {
-    				if_block.d(1);
-    				if_block = null;
-    			}
-
     			var login_changes = {};
     			if (changed.name) login_changes.name = ctx.name;
     			login.$set(login_changes);
@@ -28717,62 +29743,75 @@ var app = (function () {
     		},
 
     		d: function destroy(detaching) {
-    			detach(link);
-
     			if (detaching) {
-    				detach(t0);
     				detach(main);
     			}
-
-    			if (if_block) if_block.d();
 
     			login.$destroy();
     		}
     	};
     }
 
-    function instance$4($$self, $$props, $$invalidate) {
-    	let { name } = $$props;
-    		let user;
+    function instance$8($$self, $$props, $$invalidate) {
+    	
+    let { name = 'Sveltey-Fire 🔥' } = $$props;
 
     	const writable_props = ['name'];
     	Object.keys($$props).forEach(key => {
-    		if (!writable_props.includes(key) && !key.startsWith('$$')) console.warn(`<App> was created with unknown prop '${key}'`);
+    		if (!writable_props.includes(key) && !key.startsWith('$$')) console.warn(`<Home> was created with unknown prop '${key}'`);
     	});
 
     	$$self.$set = $$props => {
     		if ('name' in $$props) $$invalidate('name', name = $$props.name);
     	};
 
-    	return { name, user };
+    	return { name };
     }
 
-    class App extends SvelteComponentDev {
+    class Home extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance$4, create_fragment$4, safe_not_equal, ["name"]);
-
-    		const { ctx } = this.$$;
-    		const props = options.props || {};
-    		if (ctx.name === undefined && !('name' in props)) {
-    			console.warn("<App> was created without expected prop 'name'");
-    		}
+    		init(this, options, instance$8, create_fragment$9, safe_not_equal, ["name"]);
     	}
 
     	get name() {
-    		throw new Error("<App>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    		throw new Error("<Home>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
 
     	set name(value) {
-    		throw new Error("<App>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    		throw new Error("<Home>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
     }
+
+    var router = new Router({
+    	// base: "/", // NOT required. You can specify it in any format: with or without slashes in the beginning and in the end.
+    	mode: "hash", // "hash" or "history"
+    	routes:[
+    		{
+    			path: '/about',
+    			component: About,
+    			name: 'About',
+    		},
+    		  {
+    			  path: '/',
+    			  component: Home,
+    			  name: 'Home'
+    		  },
+    		  {
+    			path: '/page2',
+    			component: Page2,
+    			name: 'Page2'
+    		}
+    		]
+      });
 
     const app = new App({
     	target: document.body,
     	props: {
     		name: 'Sveltey-Fire 🔥',
+    		router,
     	},
+
     });
 
     return app;
