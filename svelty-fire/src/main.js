@@ -5,7 +5,7 @@ import Page2 from './components/todos/Page2.svelte';
 import Home from './components/todos/Home.svelte';
 
 var router = new Router({
-	// base: "/", // NOT required. You can specify it in any format: with or without slashes in the beginning and in the end.
+	base: "/", // NOT required. You can specify it in any format: with or without slashes in the beginning and in the end.
 	mode: "hash", // "hash" or "history"
 	routes:[
 		{

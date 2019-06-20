@@ -7,27 +7,15 @@
 	export let router
 	export let name;
 
+
 onMount(()=> {
 	router.createOutlet()
 })
 
+
 </script>
+	<RouterLink to="/page2"  text={"page2"}/>
+	<RouterLink to="/about" text={"about"} />
+	<RouterLink to="/" text={"home"}  />
 
-<svelte:head>
-	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.7.4/css/bulma.min.css" />
-</svelte:head>
-
-<style>
-	h1 {
-	  color: purple;
-	}
-	main {
-	  margin: 20px;
-	}
-</style>
-<RouterLink to="/page2"  text={"page2"}/>
-<RouterLink to="/about" text={"about"} />
-<RouterLink to="/" text={"home"}  />
-
-<div  transition:fade id="router-outlet"></div>
-
+<main eh={name} id="router-outlet" ></main>

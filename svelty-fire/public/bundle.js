@@ -9,6 +9,9 @@ var app = (function () {
             tar[k] = src[k];
         return tar;
     }
+    function is_promise(value) {
+        return value && typeof value === 'object' && typeof value.then === 'function';
+    }
     function add_location(element, file, line, column, char) {
         element.__svelte_meta = {
             loc: { file, line, column, char }
@@ -121,6 +124,12 @@ var app = (function () {
     function listen(node, event, handler, options) {
         node.addEventListener(event, handler, options);
         return () => node.removeEventListener(event, handler, options);
+    }
+    function attr(node, attribute, value) {
+        if (value == null)
+            node.removeAttribute(attribute);
+        else
+            node.setAttribute(attribute, value);
     }
     function children(element) {
         return Array.from(element.childNodes);
@@ -419,110 +428,61 @@ var app = (function () {
             }
         };
     }
-    function create_bidirectional_transition(node, fn, params, intro) {
-        let config = fn(node, params);
-        let t = intro ? 0 : 1;
-        let running_program = null;
-        let pending_program = null;
-        let animation_name = null;
-        function clear_animation() {
-            if (animation_name)
-                delete_rule(node, animation_name);
-        }
-        function init(program, duration) {
-            const d = program.b - t;
-            duration *= Math.abs(d);
-            return {
-                a: t,
-                b: program.b,
-                d,
-                duration,
-                start: program.start,
-                end: program.start + duration,
-                group: program.group
-            };
-        }
-        function go(b) {
-            const { delay = 0, duration = 300, easing = identity, tick: tick$$1 = noop, css } = config;
-            const program = {
-                start: now() + delay,
-                b
-            };
-            if (!b) {
-                // @ts-ignore todo: improve typings
-                program.group = outros;
-                outros.remaining += 1;
-            }
-            if (running_program) {
-                pending_program = program;
-            }
-            else {
-                // if this is an intro, and there's a delay, we need to do
-                // an initial tick and/or apply CSS animation immediately
-                if (css) {
-                    clear_animation();
-                    animation_name = create_rule(node, t, b, duration, delay, easing, css);
-                }
-                if (b)
-                    tick$$1(0, 1);
-                running_program = init(program, duration);
-                add_render_callback(() => dispatch(node, b, 'start'));
-                loop(now$$1 => {
-                    if (pending_program && now$$1 > pending_program.start) {
-                        running_program = init(pending_program, duration);
-                        pending_program = null;
-                        dispatch(node, running_program.b, 'start');
-                        if (css) {
-                            clear_animation();
-                            animation_name = create_rule(node, t, running_program.b, running_program.duration, 0, easing, config.css);
+
+    function handle_promise(promise, info) {
+        const token = info.token = {};
+        function update(type, index, key, value) {
+            if (info.token !== token)
+                return;
+            info.resolved = key && { [key]: value };
+            const child_ctx = assign(assign({}, info.ctx), info.resolved);
+            const block = type && (info.current = type)(child_ctx);
+            if (info.block) {
+                if (info.blocks) {
+                    info.blocks.forEach((block, i) => {
+                        if (i !== index && block) {
+                            group_outros();
+                            on_outro(() => {
+                                block.d(1);
+                                info.blocks[i] = null;
+                            });
+                            block.o(1);
+                            check_outros();
                         }
-                    }
-                    if (running_program) {
-                        if (now$$1 >= running_program.end) {
-                            tick$$1(t = running_program.b, 1 - t);
-                            dispatch(node, running_program.b, 'end');
-                            if (!pending_program) {
-                                // we're done
-                                if (running_program.b) {
-                                    // intro — we can tidy up immediately
-                                    clear_animation();
-                                }
-                                else {
-                                    // outro — needs to be coordinated
-                                    if (!--running_program.group.remaining)
-                                        run_all(running_program.group.callbacks);
-                                }
-                            }
-                            running_program = null;
-                        }
-                        else if (now$$1 >= running_program.start) {
-                            const p = now$$1 - running_program.start;
-                            t = running_program.a + running_program.d * easing(p / running_program.duration);
-                            tick$$1(t, 1 - t);
-                        }
-                    }
-                    return !!(running_program || pending_program);
-                });
-            }
-        }
-        return {
-            run(b) {
-                if (is_function(config)) {
-                    wait().then(() => {
-                        // @ts-ignore
-                        config = config();
-                        go(b);
                     });
                 }
                 else {
-                    go(b);
+                    info.block.d(1);
                 }
-            },
-            end() {
-                clear_animation();
-                running_program = pending_program = null;
+                block.c();
+                if (block.i)
+                    block.i(1);
+                block.m(info.mount(), info.anchor);
+                flush();
             }
-        };
+            info.block = block;
+            if (info.blocks)
+                info.blocks[index] = block;
+        }
+        if (is_promise(promise)) {
+            promise.then(value => {
+                update(info.then, 1, info.value, value);
+            }, error => {
+                update(info.catch, 2, info.error, error);
+            });
+            // if we previously had a then/catch block, destroy it
+            if (info.current !== info.pending) {
+                update(info.pending, 0);
+                return true;
+            }
+        }
+        else {
+            if (info.current !== info.then) {
+                update(info.then, 1, info.value, promise);
+                return true;
+            }
+            info.resolved = { [info.value]: promise };
+        }
     }
 
     function get_spread_update(levels, updates) {
@@ -4004,6 +3964,7 @@ var app = (function () {
     function noop$2() {
         // do nothing
     }
+    //# sourceMappingURL=index.esm.js.map
 
     /**
      * @license
@@ -4487,6 +4448,9 @@ var app = (function () {
         }
     }
     var firebase = createFirebaseNamespace();
+    //# sourceMappingURL=index.esm.js.map
+
+    //# sourceMappingURL=index.esm.js.map
 
     (function() {var h,aa=aa||{},l=this;function m(a){return "string"==typeof a}function ba(a){return "boolean"==typeof a}var ca=/^[\w+/_-]+[=]{0,2}$/,ea=null;function fa(){}
     function ha(a){var b=typeof a;if("object"==b)if(a){if(a instanceof Array)return "array";if(a instanceof Object)return b;var c=Object.prototype.toString.call(a);if("[object Window]"==c)return "object";if("[object Array]"==c||"number"==typeof a.length&&"undefined"!=typeof a.splice&&"undefined"!=typeof a.propertyIsEnumerable&&!a.propertyIsEnumerable("splice"))return "array";if("[object Function]"==c||"undefined"!=typeof a.call&&"undefined"!=typeof a.propertyIsEnumerable&&!a.propertyIsEnumerable("call"))return "function"}else return "null";
@@ -4808,6 +4772,8 @@ var app = (function () {
     (function(){if("undefined"!==typeof firebase&&firebase.INTERNAL&&firebase.INTERNAL.registerService){var a={Auth:mm,AuthCredential:Sf,Error:N};Z(a,"EmailAuthProvider",og,[]);Z(a,"FacebookAuthProvider",fg,[]);Z(a,"GithubAuthProvider",hg,[]);Z(a,"GoogleAuthProvider",jg,[]);Z(a,"TwitterAuthProvider",lg,[]);Z(a,"OAuthProvider",O,[V("providerId")]);Z(a,"SAMLAuthProvider",eg,[V("providerId")]);Z(a,"PhoneAuthProvider",Bg,[dn()]);Z(a,"RecaptchaVerifier",Xm,[X(V(),cn(),"recaptchaContainer"),W("recaptchaParameters",
     !0),en()]);firebase.INTERNAL.registerService("auth",function(b,c){b=new mm(b);c({INTERNAL:{getUid:t(b.getUid,b),getToken:t(b.cc,b),addAuthTokenListener:t(b.Vb,b),removeAuthTokenListener:t(b.Ec,b)}});return b},a,function(b,c){if("create"===b)try{c.auth();}catch(d){}});firebase.INTERNAL.extendNamespace({User:Q});}else throw Error("Cannot find the firebase namespace; be sure to include firebase-app.js before this library.");})();}).apply(typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : typeof window !== 'undefined' ? window : {});
 
+    //# sourceMappingURL=auth.esm.js.map
+
     /**
      * @license
      * Copyright 2017 Google Inc.
@@ -4971,6 +4937,7 @@ var app = (function () {
         };
         return Logger;
     }());
+    //# sourceMappingURL=index.esm.js.map
 
     var commonjsGlobal$1 = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
@@ -5066,6 +5033,7 @@ var app = (function () {
     var tmp_3 = tmp.EventType;
     var tmp_4 = tmp.WebChannel;
     var tmp_5 = tmp.XhrIo;
+    //# sourceMappingURL=index.esm.js.map
 
     /**
      * @license
@@ -26779,6 +26747,7 @@ var app = (function () {
         configureForFirebase(instance);
     }
     registerFirestore(firebase);
+    //# sourceMappingURL=index.esm.js.map
 
     var firebaseConfig = {
       apiKey: "AIzaSyA2zumgOX2ohFHpS5RHNRegZgNl8TBKfJI", //check
@@ -26798,6 +26767,7 @@ var app = (function () {
     function isFunction(x) {
         return typeof x === 'function';
     }
+    //# sourceMappingURL=isFunction.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     var _enable_super_gross_mode_that_will_cause_bad_things = false;
@@ -26814,11 +26784,13 @@ var app = (function () {
             return _enable_super_gross_mode_that_will_cause_bad_things;
         },
     };
+    //# sourceMappingURL=config.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     function hostReportError(err) {
         setTimeout(function () { throw err; }, 0);
     }
+    //# sourceMappingURL=hostReportError.js.map
 
     /** PURE_IMPORTS_START _config,_util_hostReportError PURE_IMPORTS_END */
     var empty$1 = {
@@ -26834,14 +26806,17 @@ var app = (function () {
         },
         complete: function () { }
     };
+    //# sourceMappingURL=Observer.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     var isArray$1 = Array.isArray || (function (x) { return x && typeof x.length === 'number'; });
+    //# sourceMappingURL=isArray.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     function isObject$1(x) {
         return x !== null && typeof x === 'object';
     }
+    //# sourceMappingURL=isObject.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     function UnsubscriptionErrorImpl(errors) {
@@ -26854,6 +26829,7 @@ var app = (function () {
     }
     UnsubscriptionErrorImpl.prototype = /*@__PURE__*/ Object.create(Error.prototype);
     var UnsubscriptionError = UnsubscriptionErrorImpl;
+    //# sourceMappingURL=UnsubscriptionError.js.map
 
     /** PURE_IMPORTS_START _util_isArray,_util_isObject,_util_isFunction,_util_UnsubscriptionError PURE_IMPORTS_END */
     var Subscription = /*@__PURE__*/ (function () {
@@ -26985,11 +26961,13 @@ var app = (function () {
     function flattenUnsubscriptionErrors(errors) {
         return errors.reduce(function (errs, err) { return errs.concat((err instanceof UnsubscriptionError) ? err.errors : err); }, []);
     }
+    //# sourceMappingURL=Subscription.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     var rxSubscriber = typeof Symbol === 'function'
         ? /*@__PURE__*/ Symbol('rxSubscriber')
         : '@@rxSubscriber_' + /*@__PURE__*/ Math.random();
+    //# sourceMappingURL=rxSubscriber.js.map
 
     /** PURE_IMPORTS_START tslib,_util_isFunction,_Observer,_Subscription,_internal_symbol_rxSubscriber,_config,_util_hostReportError PURE_IMPORTS_END */
     var Subscriber = /*@__PURE__*/ (function (_super) {
@@ -27214,6 +27192,7 @@ var app = (function () {
         };
         return SafeSubscriber;
     }(Subscriber));
+    //# sourceMappingURL=Subscriber.js.map
 
     /** PURE_IMPORTS_START _Subscriber PURE_IMPORTS_END */
     function canReportError(observer) {
@@ -27231,6 +27210,7 @@ var app = (function () {
         }
         return true;
     }
+    //# sourceMappingURL=canReportError.js.map
 
     /** PURE_IMPORTS_START _Subscriber,_symbol_rxSubscriber,_Observer PURE_IMPORTS_END */
     function toSubscriber(nextOrObserver, error, complete) {
@@ -27247,12 +27227,15 @@ var app = (function () {
         }
         return new Subscriber(nextOrObserver, error, complete);
     }
+    //# sourceMappingURL=toSubscriber.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     var observable = typeof Symbol === 'function' && Symbol.observable || '@@observable';
+    //# sourceMappingURL=observable.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     function noop$3() { }
+    //# sourceMappingURL=noop.js.map
 
     /** PURE_IMPORTS_START _noop PURE_IMPORTS_END */
     function pipeFromArray(fns) {
@@ -27266,6 +27249,7 @@ var app = (function () {
             return fns.reduce(function (prev, fn) { return fn(prev); }, input);
         };
     }
+    //# sourceMappingURL=pipe.js.map
 
     /** PURE_IMPORTS_START _util_canReportError,_util_toSubscriber,_symbol_observable,_util_pipe,_config PURE_IMPORTS_END */
     var Observable = /*@__PURE__*/ (function () {
@@ -27376,6 +27360,7 @@ var app = (function () {
         }
         return promiseCtor;
     }
+    //# sourceMappingURL=Observable.js.map
 
     /** PURE_IMPORTS_START tslib,_Observable,_Subscriber,_Subscription,_util_ObjectUnsubscribedError,_SubjectSubscription,_internal_symbol_rxSubscriber PURE_IMPORTS_END */
     var SubjectSubscriber = /*@__PURE__*/ (function (_super) {
@@ -27387,6 +27372,7 @@ var app = (function () {
         }
         return SubjectSubscriber;
     }(Subscriber));
+    //# sourceMappingURL=Subject.js.map
 
     /** PURE_IMPORTS_START tslib,_Subscriber PURE_IMPORTS_END */
     function refCount() {
@@ -27443,6 +27429,7 @@ var app = (function () {
         };
         return RefCountSubscriber;
     }(Subscriber));
+    //# sourceMappingURL=refCount.js.map
 
     /** PURE_IMPORTS_START tslib,_Subject,_Observable,_Subscriber,_Subscription,_operators_refCount PURE_IMPORTS_END */
     var ConnectableObservable = /*@__PURE__*/ (function (_super) {
@@ -27527,11 +27514,13 @@ var app = (function () {
         };
         return ConnectableSubscriber;
     }(SubjectSubscriber));
+    //# sourceMappingURL=ConnectableObservable.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     function isScheduler(value) {
         return value && typeof value.schedule === 'function';
     }
+    //# sourceMappingURL=isScheduler.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     var subscribeToArray = function (array) {
@@ -27542,6 +27531,7 @@ var app = (function () {
             subscriber.complete();
         };
     };
+    //# sourceMappingURL=subscribeToArray.js.map
 
     /** PURE_IMPORTS_START _Observable,_Subscription PURE_IMPORTS_END */
     function scheduleArray(input, scheduler) {
@@ -27561,6 +27551,7 @@ var app = (function () {
             return sub;
         });
     }
+    //# sourceMappingURL=scheduleArray.js.map
 
     /** PURE_IMPORTS_START _Observable,_util_subscribeToArray,_scheduled_scheduleArray PURE_IMPORTS_END */
     function fromArray(input, scheduler) {
@@ -27571,6 +27562,7 @@ var app = (function () {
             return scheduleArray(input, scheduler);
         }
     }
+    //# sourceMappingURL=fromArray.js.map
 
     /** PURE_IMPORTS_START _util_isScheduler,_fromArray,_scheduled_scheduleArray PURE_IMPORTS_END */
     function of() {
@@ -27587,11 +27579,13 @@ var app = (function () {
             return fromArray(args);
         }
     }
+    //# sourceMappingURL=of.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     function identity$1(x) {
         return x;
     }
+    //# sourceMappingURL=identity.js.map
 
     /** PURE_IMPORTS_START tslib,_Subscriber PURE_IMPORTS_END */
     function map(project, thisArg) {
@@ -27634,6 +27628,7 @@ var app = (function () {
         };
         return MapSubscriber;
     }(Subscriber));
+    //# sourceMappingURL=map.js.map
 
     /** PURE_IMPORTS_START tslib,_Subscriber PURE_IMPORTS_END */
     var OuterSubscriber = /*@__PURE__*/ (function (_super) {
@@ -27652,6 +27647,7 @@ var app = (function () {
         };
         return OuterSubscriber;
     }(Subscriber));
+    //# sourceMappingURL=OuterSubscriber.js.map
 
     /** PURE_IMPORTS_START tslib,_Subscriber PURE_IMPORTS_END */
     var InnerSubscriber = /*@__PURE__*/ (function (_super) {
@@ -27677,6 +27673,7 @@ var app = (function () {
         };
         return InnerSubscriber;
     }(Subscriber));
+    //# sourceMappingURL=InnerSubscriber.js.map
 
     /** PURE_IMPORTS_START _hostReportError PURE_IMPORTS_END */
     var subscribeToPromise = function (promise) {
@@ -27691,6 +27688,7 @@ var app = (function () {
             return subscriber;
         };
     };
+    //# sourceMappingURL=subscribeToPromise.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     function getSymbolIterator() {
@@ -27700,6 +27698,7 @@ var app = (function () {
         return Symbol.iterator;
     }
     var iterator$1 = /*@__PURE__*/ getSymbolIterator();
+    //# sourceMappingURL=iterator.js.map
 
     /** PURE_IMPORTS_START _symbol_iterator PURE_IMPORTS_END */
     var subscribeToIterable = function (iterable) {
@@ -27726,6 +27725,7 @@ var app = (function () {
             return subscriber;
         };
     };
+    //# sourceMappingURL=subscribeToIterable.js.map
 
     /** PURE_IMPORTS_START _symbol_observable PURE_IMPORTS_END */
     var subscribeToObservable = function (obj) {
@@ -27739,14 +27739,17 @@ var app = (function () {
             }
         };
     };
+    //# sourceMappingURL=subscribeToObservable.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     var isArrayLike = (function (x) { return x && typeof x.length === 'number' && typeof x !== 'function'; });
+    //# sourceMappingURL=isArrayLike.js.map
 
     /** PURE_IMPORTS_START  PURE_IMPORTS_END */
     function isPromise(value) {
         return !!value && typeof value.subscribe !== 'function' && typeof value.then === 'function';
     }
+    //# sourceMappingURL=isPromise.js.map
 
     /** PURE_IMPORTS_START _subscribeToArray,_subscribeToPromise,_subscribeToIterable,_subscribeToObservable,_isArrayLike,_isPromise,_isObject,_symbol_iterator,_symbol_observable PURE_IMPORTS_END */
     var subscribeTo = function (result) {
@@ -27769,6 +27772,7 @@ var app = (function () {
             throw new TypeError(msg);
         }
     };
+    //# sourceMappingURL=subscribeTo.js.map
 
     /** PURE_IMPORTS_START _InnerSubscriber,_subscribeTo,_Observable PURE_IMPORTS_END */
     function subscribeToResult(outerSubscriber, result, outerValue, outerIndex, destination) {
@@ -27783,6 +27787,7 @@ var app = (function () {
         }
         return subscribeTo(result)(destination);
     }
+    //# sourceMappingURL=subscribeToResult.js.map
 
     /** PURE_IMPORTS_START _Observable,_Subscription,_symbol_observable PURE_IMPORTS_END */
     function scheduleObservable(input, scheduler) {
@@ -27799,6 +27804,7 @@ var app = (function () {
             return sub;
         });
     }
+    //# sourceMappingURL=scheduleObservable.js.map
 
     /** PURE_IMPORTS_START _Observable,_Subscription PURE_IMPORTS_END */
     function schedulePromise(input, scheduler) {
@@ -27817,6 +27823,7 @@ var app = (function () {
             return sub;
         });
     }
+    //# sourceMappingURL=schedulePromise.js.map
 
     /** PURE_IMPORTS_START _Observable,_Subscription,_symbol_iterator PURE_IMPORTS_END */
     function scheduleIterable(input, scheduler) {
@@ -27860,16 +27867,19 @@ var app = (function () {
             return sub;
         });
     }
+    //# sourceMappingURL=scheduleIterable.js.map
 
     /** PURE_IMPORTS_START _symbol_observable PURE_IMPORTS_END */
     function isInteropObservable(input) {
         return input && typeof input[observable] === 'function';
     }
+    //# sourceMappingURL=isInteropObservable.js.map
 
     /** PURE_IMPORTS_START _symbol_iterator PURE_IMPORTS_END */
     function isIterable(input) {
         return input && typeof input[iterator$1] === 'function';
     }
+    //# sourceMappingURL=isIterable.js.map
 
     /** PURE_IMPORTS_START _scheduleObservable,_schedulePromise,_scheduleArray,_scheduleIterable,_util_isInteropObservable,_util_isPromise,_util_isArrayLike,_util_isIterable PURE_IMPORTS_END */
     function scheduled(input, scheduler) {
@@ -27889,6 +27899,7 @@ var app = (function () {
         }
         throw new TypeError((input !== null && typeof input || input) + ' is not observable');
     }
+    //# sourceMappingURL=scheduled.js.map
 
     /** PURE_IMPORTS_START _Observable,_util_subscribeTo,_scheduled_scheduled PURE_IMPORTS_END */
     function from(input, scheduler) {
@@ -27902,6 +27913,7 @@ var app = (function () {
             return scheduled(input, scheduler);
         }
     }
+    //# sourceMappingURL=from.js.map
 
     /** PURE_IMPORTS_START tslib,_util_subscribeToResult,_OuterSubscriber,_InnerSubscriber,_map,_observable_from PURE_IMPORTS_END */
     function mergeMap(project, resultSelector, concurrent) {
@@ -27994,6 +28006,7 @@ var app = (function () {
         };
         return MergeMapSubscriber;
     }(OuterSubscriber));
+    //# sourceMappingURL=mergeMap.js.map
 
     /** PURE_IMPORTS_START _mergeMap,_util_identity PURE_IMPORTS_END */
     function mergeAll(concurrent) {
@@ -28002,11 +28015,13 @@ var app = (function () {
         }
         return mergeMap(identity$1, concurrent);
     }
+    //# sourceMappingURL=mergeAll.js.map
 
     /** PURE_IMPORTS_START _mergeAll PURE_IMPORTS_END */
     function concatAll() {
         return mergeAll(1);
     }
+    //# sourceMappingURL=concatAll.js.map
 
     /** PURE_IMPORTS_START _of,_operators_concatAll PURE_IMPORTS_END */
     function concat() {
@@ -28016,6 +28031,7 @@ var app = (function () {
         }
         return concatAll()(of.apply(void 0, observables));
     }
+    //# sourceMappingURL=concat.js.map
 
     /** PURE_IMPORTS_START _observable_concat,_util_isScheduler PURE_IMPORTS_END */
     function startWith() {
@@ -28032,6 +28048,7 @@ var app = (function () {
             return function (source) { return concat(array, source); };
         }
     }
+    //# sourceMappingURL=startWith.js.map
 
     /**
      * @license
@@ -28092,6 +28109,7 @@ var app = (function () {
             return arr.map(function (snap) { return snapToData(snap, idField); });
         }));
     }
+    //# sourceMappingURL=index.esm.js.map
 
     /* src/components/todos/Todos.svelte generated by Svelte v3.5.1 */
 
@@ -28380,6 +28398,113 @@ var app = (function () {
     }
 
     /**
+     * Creates a `Readable` store that allows reading by subscription.
+     * @param value initial value
+     * @param {StartStopNotifier}start start and stop notifications for subscriptions
+     */
+    function readable(value, start) {
+        return {
+            subscribe: writable(value, start).subscribe,
+        };
+    }
+    /**
+     * Create a `Writable` store that allows both updating and reading by subscription.
+     * @param {*=}value initial value
+     * @param {StartStopNotifier=}start start and stop notifications for subscriptions
+     */
+    function writable(value, start = noop) {
+        let stop;
+        const subscribers = [];
+        function set(new_value) {
+            if (safe_not_equal(value, new_value)) {
+                value = new_value;
+                if (!stop) {
+                    return; // not ready
+                }
+                subscribers.forEach((s) => s[1]());
+                subscribers.forEach((s) => s[0](value));
+            }
+        }
+        function update(fn) {
+            set(fn(value));
+        }
+        function subscribe(run, invalidate = noop) {
+            const subscriber = [run, invalidate];
+            subscribers.push(subscriber);
+            if (subscribers.length === 1) {
+                stop = start(set) || noop;
+            }
+            run(value);
+            return () => {
+                const index = subscribers.indexOf(subscriber);
+                if (index !== -1) {
+                    subscribers.splice(index, 1);
+                }
+                if (subscribers.length === 0) {
+                    stop();
+                }
+            };
+        }
+        return { set, update, subscribe };
+    }
+
+    var OBSERVABLE;
+    function isObservable(value) {
+        // Lazy-load Symbol to give polyfills a chance to run
+        if (!OBSERVABLE) {
+            OBSERVABLE =
+                (typeof Symbol === 'function' && Symbol.observable) || '@@observable';
+        }
+        return value && value[OBSERVABLE] && value[OBSERVABLE]() === value;
+    }
+    function deferred(set, initial) {
+        var initialized = initial !== undefined;
+        var resolve;
+        var reject;
+        // Set initial value
+        set(initialized
+            ? initial
+            : new Promise(function (_resolve, _reject) {
+                resolve = _resolve;
+                reject = _reject;
+            }));
+        return {
+            fulfill: function (value) {
+                if (initialized)
+                    return set(Promise.resolve(value));
+                initialized = true;
+                resolve(value);
+            },
+            reject: function (error) {
+                if (initialized)
+                    return set(Promise.reject(error));
+                initialized = true;
+                reject(error);
+            }
+        };
+    }
+
+    var noop$4 = function () { };
+    function observe(observable, initial) {
+        if (!isObservable(observable)) {
+            return readable(observable, noop$4);
+        }
+        return readable(undefined, function (set) {
+            var _a = deferred(set, initial), fulfill = _a.fulfill, reject = _a.reject;
+            var subscription = observable.subscribe({
+                next: function (value) {
+                    fulfill(value);
+                },
+                error: function (err) {
+                    reject(err);
+                }
+            });
+            return function () { return subscription.unsubscribe(); };
+        });
+    }
+    //# sourceMappingURL=svelte-observable.es.js.map
+
+    /**
      * @license
      * Copyright 2018 Google Inc.
      *
@@ -28406,12 +28531,76 @@ var app = (function () {
             return { unsubscribe: unsubscribe };
         });
     }
+    //# sourceMappingURL=index.esm.js.map
 
     /* src/Login.svelte generated by Svelte v3.5.1 */
 
     const file$3 = "src/Login.svelte";
 
-    // (32:0) {:else}
+    // (32:0) {:catch error}
+    function create_catch_block(ctx) {
+    	var t;
+
+    	return {
+    		c: function create() {
+    			t = text("rejected - Received an error");
+    		},
+
+    		m: function mount(target, anchor) {
+    			insert(target, t, anchor);
+    		},
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(t);
+    			}
+    		}
+    	};
+    }
+
+    // (30:0) {:then result}
+    function create_then_block(ctx) {
+    	var t;
+
+    	return {
+    		c: function create() {
+    			t = text("fulfilled - Received a value");
+    		},
+
+    		m: function mount(target, anchor) {
+    			insert(target, t, anchor);
+    		},
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(t);
+    			}
+    		}
+    	};
+    }
+
+    // (28:23)    pending - No value or error has been received yet {:then result}
+    function create_pending_block(ctx) {
+    	var t;
+
+    	return {
+    		c: function create() {
+    			t = text("pending - No value or error has been received yet");
+    		},
+
+    		m: function mount(target, anchor) {
+    			insert(target, t, anchor);
+    		},
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(t);
+    			}
+    		}
+    	};
+    }
+
+    // (41:0) {:else}
     function create_else_block$1(ctx) {
     	var div, h1, t0, t1, t2, t3, p0, t5, hr, t6, p1, t8, button, dispose;
 
@@ -28420,7 +28609,7 @@ var app = (function () {
     			div = element("div");
     			h1 = element("h1");
     			t0 = text("Welcome to ");
-    			t1 = text(ctx.name);
+    			t1 = text(ctx.props);
     			t2 = text("!");
     			t3 = space();
     			p0 = element("p");
@@ -28434,16 +28623,16 @@ var app = (function () {
     			button = element("button");
     			button.textContent = "Signin with Google";
     			h1.className = "display-3";
-    			add_location(h1, file$3, 33, 2, 746);
+    			add_location(h1, file$3, 42, 2, 1021);
     			p0.className = "lead";
-    			add_location(p0, file$3, 34, 4, 797);
+    			add_location(p0, file$3, 43, 4, 1073);
     			hr.className = "my-4";
-    			add_location(hr, file$3, 37, 4, 1076);
-    			add_location(p1, file$3, 38, 4, 1098);
+    			add_location(hr, file$3, 46, 4, 1352);
+    			add_location(p1, file$3, 47, 4, 1374);
     			button.className = "btn-warning";
-    			add_location(button, file$3, 41, 4, 1141);
+    			add_location(button, file$3, 50, 4, 1417);
     			div.className = "jumbotron";
-    			add_location(div, file$3, 32, 0, 718);
+    			add_location(div, file$3, 41, 0, 993);
     			dispose = listen(button, "click", login);
     		},
 
@@ -28464,8 +28653,8 @@ var app = (function () {
     		},
 
     		p: function update(changed, ctx) {
-    			if (changed.name) {
-    				set_data(t1, ctx.name);
+    			if (changed.props) {
+    				set_data(t1, ctx.props);
     			}
     		},
 
@@ -28482,7 +28671,7 @@ var app = (function () {
     	};
     }
 
-    // (27:0) {#if user}
+    // (36:0) {#if user}
     function create_if_block$1(ctx) {
     	var t0, button, t2, hr, t3, current, dispose;
 
@@ -28512,8 +28701,8 @@ var app = (function () {
     			t3 = space();
     			todos.$$.fragment.c();
     			button.className = "button";
-    			add_location(button, file$3, 28, 4, 599);
-    			add_location(hr, file$3, 29, 4, 676);
+    			add_location(button, file$3, 37, 4, 874);
+    			add_location(hr, file$3, 38, 4, 951);
     			dispose = listen(button, "click", ctx.click_handler);
     		},
 
@@ -28573,7 +28762,19 @@ var app = (function () {
     }
 
     function create_fragment$3(ctx) {
-    	var section, current_block_type_index, if_block, current;
+    	var promise, t, section, current_block_type_index, if_block, current;
+
+    	let info = {
+    		ctx,
+    		current: null,
+    		pending: create_pending_block,
+    		then: create_then_block,
+    		catch: create_catch_block,
+    		value: 'result',
+    		error: 'error'
+    	};
+
+    	handle_promise(promise = ctx.$results_store, info);
 
     	var if_block_creators = [
     		create_if_block$1,
@@ -28592,10 +28793,13 @@ var app = (function () {
 
     	return {
     		c: function create() {
+    			info.block.c();
+
+    			t = space();
     			section = element("section");
     			if_block.c();
     			section.className = "svelte-16iehzx";
-    			add_location(section, file$3, 25, 0, 548);
+    			add_location(section, file$3, 34, 0, 823);
     		},
 
     		l: function claim(nodes) {
@@ -28603,12 +28807,22 @@ var app = (function () {
     		},
 
     		m: function mount(target, anchor) {
+    			info.block.m(target, info.anchor = anchor);
+    			info.mount = () => t.parentNode;
+    			info.anchor = t;
+
+    			insert(target, t, anchor);
     			insert(target, section, anchor);
     			if_blocks[current_block_type_index].m(section, null);
     			current = true;
     		},
 
-    		p: function update(changed, ctx) {
+    		p: function update(changed, new_ctx) {
+    			ctx = new_ctx;
+    			info.ctx = ctx;
+
+    			('$results_store' in changed) && promise !== (promise = ctx.$results_store) && handle_promise(promise, info);
+
     			var previous_block_index = current_block_type_index;
     			current_block_type_index = select_block_type(ctx);
     			if (current_block_type_index === previous_block_index) {
@@ -28644,7 +28858,11 @@ var app = (function () {
     		},
 
     		d: function destroy(detaching) {
+    			info.block.d(detaching);
+    			info = null;
+
     			if (detaching) {
+    				detach(t);
     				detach(section);
     			}
 
@@ -28658,15 +28876,19 @@ var app = (function () {
       }
 
     function instance$3($$self, $$props, $$invalidate) {
+    	let $results_store;
+
     	
 
-        let { name } = $$props;
+        let { props } = $$props;
         
         let { user } = $$props;
         const unsubscribe = authState(auth).subscribe(u => { const $$result = user = u; $$invalidate('user', user); return $$result; });
+          const results_store = observe(unsubscribe); validate_store(results_store, 'results_store'); subscribe($$self, results_store, $$value => { $results_store = $$value; $$invalidate('$results_store', $results_store); });
+
         	console.log('the component has mounted');
 
-    	const writable_props = ['name', 'user'];
+    	const writable_props = ['props', 'user'];
     	Object.keys($$props).forEach(key => {
     		if (!writable_props.includes(key) && !key.startsWith('$$')) console.warn(`<Login> was created with unknown prop '${key}'`);
     	});
@@ -28676,33 +28898,39 @@ var app = (function () {
     	}
 
     	$$self.$set = $$props => {
-    		if ('name' in $$props) $$invalidate('name', name = $$props.name);
+    		if ('props' in $$props) $$invalidate('props', props = $$props.props);
     		if ('user' in $$props) $$invalidate('user', user = $$props.user);
     	};
 
-    	return { name, user, click_handler };
+    	return {
+    		props,
+    		user,
+    		results_store,
+    		$results_store,
+    		click_handler
+    	};
     }
 
     class Login extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance$3, create_fragment$3, safe_not_equal, ["name", "user"]);
+    		init(this, options, instance$3, create_fragment$3, safe_not_equal, ["props", "user"]);
 
     		const { ctx } = this.$$;
     		const props = options.props || {};
-    		if (ctx.name === undefined && !('name' in props)) {
-    			console.warn("<Login> was created without expected prop 'name'");
+    		if (ctx.props === undefined && !('props' in props)) {
+    			console.warn("<Login> was created without expected prop 'props'");
     		}
     		if (ctx.user === undefined && !('user' in props)) {
     			console.warn("<Login> was created without expected prop 'user'");
     		}
     	}
 
-    	get name() {
+    	get props() {
     		throw new Error("<Login>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
 
-    	set name(value) {
+    	set props(value) {
     		throw new Error("<Login>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
 
@@ -28901,7 +29129,7 @@ var app = (function () {
     const file$5 = "src/App.svelte";
 
     function create_fragment$5(ctx) {
-    	var link, t0, t1, t2, t3, div, div_transition, current;
+    	var t0, t1, t2, main, current;
 
     	var routerlink0 = new RouterLink({
     		props: { to: "/page2", text: "page2" },
@@ -28920,20 +29148,16 @@ var app = (function () {
 
     	return {
     		c: function create() {
-    			link = element("link");
-    			t0 = space();
     			routerlink0.$$.fragment.c();
-    			t1 = space();
+    			t0 = space();
     			routerlink1.$$.fragment.c();
-    			t2 = space();
+    			t1 = space();
     			routerlink2.$$.fragment.c();
-    			t3 = space();
-    			div = element("div");
-    			link.rel = "stylesheet";
-    			link.href = "https://cdnjs.cloudflare.com/ajax/libs/bulma/0.7.4/css/bulma.min.css";
-    			add_location(link, file$5, 16, 1, 329);
-    			div.id = "router-outlet";
-    			add_location(div, file$5, 31, 0, 641);
+    			t2 = space();
+    			main = element("main");
+    			attr(main, "eh", ctx.name);
+    			main.id = "router-outlet";
+    			add_location(main, file$5, 20, 0, 440);
     		},
 
     		l: function claim(nodes) {
@@ -28941,19 +29165,21 @@ var app = (function () {
     		},
 
     		m: function mount(target, anchor) {
-    			append(document.head, link);
-    			insert(target, t0, anchor);
     			mount_component(routerlink0, target, anchor);
-    			insert(target, t1, anchor);
+    			insert(target, t0, anchor);
     			mount_component(routerlink1, target, anchor);
-    			insert(target, t2, anchor);
+    			insert(target, t1, anchor);
     			mount_component(routerlink2, target, anchor);
-    			insert(target, t3, anchor);
-    			insert(target, div, anchor);
+    			insert(target, t2, anchor);
+    			insert(target, main, anchor);
     			current = true;
     		},
 
-    		p: noop,
+    		p: function update(changed, ctx) {
+    			if (!current || changed.name) {
+    				attr(main, "eh", ctx.name);
+    			}
+    		},
 
     		i: function intro(local) {
     			if (current) return;
@@ -28963,11 +29189,6 @@ var app = (function () {
 
     			routerlink2.$$.fragment.i(local);
 
-    			add_render_callback(() => {
-    				if (!div_transition) div_transition = create_bidirectional_transition(div, fade, {}, true);
-    				div_transition.run(1);
-    			});
-
     			current = true;
     		},
 
@@ -28975,38 +29196,27 @@ var app = (function () {
     			routerlink0.$$.fragment.o(local);
     			routerlink1.$$.fragment.o(local);
     			routerlink2.$$.fragment.o(local);
-
-    			if (!div_transition) div_transition = create_bidirectional_transition(div, fade, {}, false);
-    			div_transition.run(0);
-
     			current = false;
     		},
 
     		d: function destroy(detaching) {
-    			detach(link);
+    			routerlink0.$destroy(detaching);
 
     			if (detaching) {
     				detach(t0);
     			}
 
-    			routerlink0.$destroy(detaching);
+    			routerlink1.$destroy(detaching);
 
     			if (detaching) {
     				detach(t1);
     			}
 
-    			routerlink1.$destroy(detaching);
-
-    			if (detaching) {
-    				detach(t2);
-    			}
-
     			routerlink2.$destroy(detaching);
 
     			if (detaching) {
-    				detach(t3);
-    				detach(div);
-    				if (div_transition) div_transition.end();
+    				detach(t2);
+    				detach(main);
     			}
     		}
     	};
@@ -29015,6 +29225,7 @@ var app = (function () {
     function instance$5($$self, $$props, $$invalidate) {
     	
     	let { router, name } = $$props;
+
 
     onMount(()=> {
     	router.createOutlet();
@@ -29569,20 +29780,31 @@ var app = (function () {
             return this.currentRoute;
         }
     }
+    //# sourceMappingURL=router.js.map
 
     /* src/components/todos/About.svelte generated by Svelte v3.5.1 */
 
     const file$7 = "src/components/todos/About.svelte";
 
     function create_fragment$7(ctx) {
-    	var h1, t0, t1;
+    	var styles, t0, div, h1, t1, t2, t3, p;
 
     	return {
     		c: function create() {
+    			styles = element("styles");
+    			t0 = space();
+    			div = element("div");
     			h1 = element("h1");
-    			t0 = text("You routed ");
-    			t1 = text(ctx.name);
-    			add_location(h1, file$7, 10, 0, 122);
+    			t1 = text("You routed ");
+    			t2 = text(ctx.name);
+    			t3 = space();
+    			p = element("p");
+    			p.textContent = "sadadsdass";
+    			add_location(styles, file$7, 13, 0, 125);
+    			add_location(h1, file$7, 16, 4, 172);
+    			add_location(p, file$7, 17, 4, 203);
+    			div.className = "jumbotron";
+    			add_location(div, file$7, 15, 0, 144);
     		},
 
     		l: function claim(nodes) {
@@ -29590,14 +29812,19 @@ var app = (function () {
     		},
 
     		m: function mount(target, anchor) {
-    			insert(target, h1, anchor);
-    			append(h1, t0);
+    			insert(target, styles, anchor);
+    			insert(target, t0, anchor);
+    			insert(target, div, anchor);
+    			append(div, h1);
     			append(h1, t1);
+    			append(h1, t2);
+    			append(div, t3);
+    			append(div, p);
     		},
 
     		p: function update(changed, ctx) {
     			if (changed.name) {
-    				set_data(t1, ctx.name);
+    				set_data(t2, ctx.name);
     			}
     		},
 
@@ -29606,7 +29833,9 @@ var app = (function () {
 
     		d: function destroy(detaching) {
     			if (detaching) {
-    				detach(h1);
+    				detach(styles);
+    				detach(t0);
+    				detach(div);
     			}
     		}
     	};
@@ -29699,10 +29928,10 @@ var app = (function () {
     const file$9 = "src/components/todos/Home.svelte";
 
     function create_fragment$9(ctx) {
-    	var main, current;
+    	var main, t, styles, current;
 
     	var login = new Login({
-    		props: { name: ctx.name },
+    		props: { props: ctx.name },
     		$$inline: true
     	});
 
@@ -29710,8 +29939,11 @@ var app = (function () {
     		c: function create() {
     			main = element("main");
     			login.$$.fragment.c();
+    			t = space();
+    			styles = element("styles");
     			main.className = "content";
-    			add_location(main, file$9, 7, 0, 133);
+    			add_location(main, file$9, 8, 0, 135);
+    			add_location(styles, file$9, 12, 0, 191);
     		},
 
     		l: function claim(nodes) {
@@ -29721,12 +29953,14 @@ var app = (function () {
     		m: function mount(target, anchor) {
     			insert(target, main, anchor);
     			mount_component(login, main, null);
+    			insert(target, t, anchor);
+    			insert(target, styles, anchor);
     			current = true;
     		},
 
     		p: function update(changed, ctx) {
     			var login_changes = {};
-    			if (changed.name) login_changes.name = ctx.name;
+    			if (changed.name) login_changes.props = ctx.name;
     			login.$set(login_changes);
     		},
 
@@ -29748,13 +29982,18 @@ var app = (function () {
     			}
 
     			login.$destroy();
+
+    			if (detaching) {
+    				detach(t);
+    				detach(styles);
+    			}
     		}
     	};
     }
 
     function instance$8($$self, $$props, $$invalidate) {
     	
-    let { name = 'Sveltey-Fire 🔥' } = $$props;
+    let { name =  'Sveltey-Fire 🔥' } = $$props;
 
     	const writable_props = ['name'];
     	Object.keys($$props).forEach(key => {
@@ -29784,7 +30023,7 @@ var app = (function () {
     }
 
     var router = new Router({
-    	// base: "/", // NOT required. You can specify it in any format: with or without slashes in the beginning and in the end.
+    	base: "/", // NOT required. You can specify it in any format: with or without slashes in the beginning and in the end.
     	mode: "hash", // "hash" or "history"
     	routes:[
     		{

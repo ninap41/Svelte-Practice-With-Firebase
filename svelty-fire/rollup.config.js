@@ -6,12 +6,6 @@ import { terser } from 'rollup-plugin-terser';
 import { app } from 'firebase';
 
 const production = !process.env.ROLLUP_WATCH;
-// let routes = {
-// 	about: { r: 'src/components/todos/about.js', name: 'about', url: '/about'},
-// 	app: { r: 'src/main.js', name: 'app', url: '/'}
-// };
-
-// let defaultr = routes.app;
 
 export default {
 	input: './src/main.js',
@@ -45,10 +39,7 @@ export default {
 		// If we're building for production (npm run build
 		// instead of npm run dev), minify
 		production && terser(),
-		function changeShit(str) {
-			defaultr = defaultr[str]
-			return;
-		}
+
 	],
 	
 };

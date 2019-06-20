@@ -47,6 +47,14 @@ input[type="range"] {
 	height: 0;
 }
 
+h1 {
+	color: purple;
+  }
+  main {
+	margin: 20px;
+  }
+  
+
 button {
 	background-color: #f4f4f4;
 	outline: none;

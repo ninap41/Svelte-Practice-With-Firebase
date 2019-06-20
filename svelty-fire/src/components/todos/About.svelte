@@ -8,4 +8,12 @@ onMount(()=> {
     name ='Sveltey-Fire 🔥'
 })
 </script>
-<h1>You routed {name}</h1>
+
+
+
+<styles>
+</styles>
+<div class="jumbotron">
+    <h1>You routed {name}</h1>
+    <p>sadadsdass</p>
+</div>
